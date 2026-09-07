@@ -7,6 +7,7 @@ from ..db import get_current_user_id, get_service_client
 from ..models.schemas import (
     ApproveRequest,
     CampaignCreate,
+    CampaignListItem,
     CampaignOut,
     CaptionOut,
     PostOut,
@@ -62,6 +63,45 @@ def create_campaign(body: CampaignCreate, user_id: str = Depends(get_current_use
         .execute()
     )
     return row.data[0]
+
+
+@router.get("", response_model=list[CampaignListItem])
+def list_campaigns(user_id: str = Depends(get_current_user_id)):
+    """For the home/dashboard page — every campaign the user has created, newest
+    first, with the brand name and a thumbnail (first generated variant, if any)
+    already attached so the frontend doesn't have to make N extra requests."""
+    client = get_service_client()
+    rows = (
+        client.table("campaigns")
+        .select("*, brands(name)")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+    if not rows:
+        return []
+
+    campaign_ids = [r["id"] for r in rows]
+    variants = (
+        client.table("variants")
+        .select("campaign_id, image_url, created_at")
+        .in_("campaign_id", campaign_ids)
+        .order("created_at")
+        .execute()
+        .data
+    )
+    first_thumbnail_by_campaign: dict[str, str | None] = {}
+    for v in variants:
+        first_thumbnail_by_campaign.setdefault(v["campaign_id"], v["image_url"])
+
+    result = []
+    for row in rows:
+        brand = row.pop("brands", None) or {}
+        row["brand_name"] = brand.get("name")
+        row["thumbnail_url"] = first_thumbnail_by_campaign.get(row["id"])
+        result.append(row)
+    return result
 
 
 @router.get("/{campaign_id}", response_model=CampaignOut)

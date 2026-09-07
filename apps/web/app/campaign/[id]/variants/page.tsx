@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
@@ -75,7 +76,10 @@ export default function VariantsPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold mb-2">Review variants</h1>
+      <Link href="/home" className="text-sm text-neutral-500">
+        ← Back to campaigns
+      </Link>
+      <h1 className="text-xl font-semibold mb-2 mt-2">Review variants</h1>
       <p className="text-sm text-neutral-500 mb-6">
         Select which variants to approve for posting. Unchecked variants are rejected.
       </p>

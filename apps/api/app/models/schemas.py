@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 CampaignType = Literal[
     "product_launch", "event_announcement", "promo_offer", "brand_awareness", "other"
 ]
-Platform = Literal["instagram", "tiktok", "youtube", "facebook"]
+Platform = Literal["instagram", "tiktok", "facebook"]  # youtube removed for now
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +74,21 @@ class CampaignOut(BaseModel):
     error_message: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class CampaignListItem(BaseModel):
+    """For the home/dashboard page — a campaign plus enough denormalized context
+    (brand name, a thumbnail) to render a list without extra requests per row."""
+
+    id: str
+    brand_id: str
+    brand_name: str | None
+    product_id: str | None
+    campaign_type: str
+    brief: str
+    status: str
+    thumbnail_url: str | None
+    created_at: datetime
 
 
 class VariantOut(BaseModel):

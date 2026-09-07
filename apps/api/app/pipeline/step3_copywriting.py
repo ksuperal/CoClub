@@ -4,7 +4,8 @@ from supabase import Client
 
 from ..services import llm, usage
 
-PLATFORMS = ["instagram", "tiktok", "youtube", "facebook"]
+# YouTube removed for now — revisit once the other three platforms are validated.
+PLATFORMS = ["instagram", "tiktok", "facebook"]
 
 
 def run_copywriting(client: Client, *, user_id: str, campaign: dict[str, Any]) -> list[dict[str, Any]]:

@@ -22,7 +22,7 @@ export default function LoginPage() {
           ? await supabase.auth.signInWithPassword({ email, password })
           : await supabase.auth.signUp({ email, password });
       if (error) throw error;
-      router.replace("/intake");
+      router.replace("/home");
     } catch (err: any) {
       setError(err.message ?? String(err));
     } finally {

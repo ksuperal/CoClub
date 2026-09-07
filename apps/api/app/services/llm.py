@@ -38,31 +38,35 @@ def _forced_tool_call(
 
 def _primary_secondary_content(
     *,
-    file_bytes: bytes | None,
-    file_media_type: str | None,
+    files: list[tuple[bytes, str]],
     text: str | None,
     file_caption: str,
     text_caption: str,
     empty_caption: str,
 ) -> list[dict[str, Any]]:
-    """Builds one message's content blocks so an uploaded file (if any) is sent as the
+    """Builds one message's content blocks so uploaded file(s) (if any) are sent as the
     primary source and free text as supplementary — used by both brand and product
-    extraction so "prioritize the upload, but still consider the text" is one rule,
-    not two separately-maintained ones."""
+    extraction so "prioritize the upload(s), but still consider the text" is one rule,
+    not two separately-maintained ones. Supports multiple files (e.g. a multi-page
+    guideline, or several product photos)."""
     content: list[dict[str, Any]] = []
-    if file_bytes and file_media_type:
-        block_type = "document" if file_media_type == "application/pdf" else "image"
-        content.append(
-            {
-                "type": block_type,
-                "source": {
-                    "type": "base64",
-                    "media_type": file_media_type,
-                    "data": base64.b64encode(file_bytes).decode("utf-8"),
-                },
-            }
-        )
+    if files:
         content.append({"type": "text", "text": file_caption})
+        for i, (file_bytes, file_media_type) in enumerate(files):
+            block_type = "document" if file_media_type == "application/pdf" else "image"
+            content.append(
+                {"type": "text", "text": f"File {i} ({'PDF' if block_type == 'document' else 'image'}):"}
+            )
+            content.append(
+                {
+                    "type": block_type,
+                    "source": {
+                        "type": "base64",
+                        "media_type": file_media_type,
+                        "data": base64.b64encode(file_bytes).decode("utf-8"),
+                    },
+                }
+            )
     if text:
         content.append({"type": "text", "text": f"{text_caption}\n\n{text}"})
     if not content:
@@ -79,7 +83,7 @@ def _primary_secondary_content(
 # product/style so every downstream step can rely on those exact keys.
 # ---------------------------------------------------------------------------
 def extract_brand_profile(
-    guideline_text: str, *, file_bytes: bytes | None = None, file_media_type: str | None = None
+    guideline_text: str, *, files: list[tuple[bytes, str]] | None = None
 ) -> tuple[dict[str, Any], int]:
     tool = {
         "name": "record_brand_profile",
@@ -140,8 +144,36 @@ def extract_brand_profile(
                         "required": ["fact", "source_quote"],
                     },
                 },
+                "logo_mascot_pages": {
+                    "type": "array",
+                    "description": "At most 1 page for the logo and at most 2 pages for the mascot, "
+                    "total — the SINGLE clearest, most complete standalone presentation of each (e.g. a "
+                    "logo spec/showcase page, a mascot model-sheet/reference page). Do NOT include every "
+                    "page where the logo happens to appear as a small recurring header/footer/watermark "
+                    "— a multi-page guideline typically repeats the logo on nearly every page as a "
+                    "template element, and none of those repeats belong here. Only the one or two pages "
+                    "that exist specifically TO showcase the artwork itself. For a non-PDF image file, "
+                    "page_number is always 1. Leave empty if no file has a genuine standalone showcase.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "file_index": {
+                                "type": "integer",
+                                "description": "The file's number from 'File N (...)' in the material above.",
+                            },
+                            "page_number": {
+                                "type": "integer",
+                                "description": "1-indexed page within that file (always 1 for image files).",
+                            },
+                            "shows": {"type": "string", "enum": ["logo", "mascot", "both"]},
+                        },
+                        "required": ["file_index", "page_number", "shows"],
+                    },
+                },
             },
-            "required": ["mascot", "color", "guideline", "font", "product", "style", "citations"],
+            "required": [
+                "mascot", "color", "guideline", "font", "product", "style", "citations", "logo_mascot_pages"
+            ],
         },
     }
     system = (
@@ -149,14 +181,17 @@ def extract_brand_profile(
         "brand guideline material. If both an uploaded document/image and pasted text are given, the "
         "uploaded document is the authoritative primary source; treat the pasted text as supplementary "
         "and defer to the document wherever the two conflict. Every fact must be traceable to the source "
-        "material — do not infer facts it doesn't support."
+        "material — do not infer facts it doesn't support. Also identify the single best file+page (if "
+        "any) showing the logo, and the single or two best page(s) showing the mascot — these become "
+        "real reference images sent to an image generator, so being selective matters far more than "
+        "being exhaustive. A logo that repeats on every page as a template header/footer does NOT "
+        "count — only a page whose actual purpose is to showcase the logo/mascot artwork itself."
     )
 
     content = _primary_secondary_content(
-        file_bytes=file_bytes,
-        file_media_type=file_media_type,
+        files=files or [],
         text=guideline_text,
-        file_caption="Brand guideline document above — this is the primary source.",
+        file_caption="Brand guideline document(s) above — these are the primary source.",
         text_caption="Supplementary notes from the user (secondary source):",
         empty_caption="No brand guideline material was provided.",
     )
@@ -171,7 +206,7 @@ def extract_brand_profile(
 # the text description is supplementary, same priority rule as brand intake.
 # ---------------------------------------------------------------------------
 def extract_product_profile(
-    description_text: str | None, *, file_bytes: bytes, file_media_type: str
+    description_text: str | None, *, files: list[tuple[bytes, str]]
 ) -> tuple[dict[str, Any], int]:
     tool = {
         "name": "record_product_profile",
@@ -212,10 +247,9 @@ def extract_product_profile(
         "Every fact must be traceable to the source material."
     )
     content = _primary_secondary_content(
-        file_bytes=file_bytes,
-        file_media_type=file_media_type,
+        files=files,
         text=description_text,
-        file_caption="Product photo/file above — this is the primary source.",
+        file_caption="Product photo(s)/file(s) above — these are the primary source.",
         text_caption="Supplementary product description from the user (secondary source):",
         empty_caption="No product material was provided.",
     )
@@ -264,6 +298,48 @@ def ideate_message_angles(
     return result["angles"][:n], tokens
 
 
+def _describe_references(reference_kinds: list[str], *, has_product_profile: bool) -> str:
+    """Builds the instruction telling Claude which numbered images (1-indexed, in the
+    order they'll actually be sent) are brand references vs product references — any
+    count of each, not just zero-or-one. References are always sent brand-first then
+    product (see step2_variants.py's _get_reference_images), so kinds are contiguous."""
+    if not reference_kinds:
+        if has_product_profile:
+            return (
+                "No reference photo is available — the product's visual_description is what the "
+                "product must actually look like in the image. Render it faithfully, don't invent a "
+                "different-looking product."
+            )
+        return ""
+
+    def _range(start: int, count: int) -> str:
+        return f"image {start}" if count == 1 else f"images {start}-{start + count - 1}"
+
+    brand_count = reference_kinds.count("brand")
+    product_count = reference_kinds.count("product")
+    parts = []
+    idx = 1
+    if brand_count:
+        parts.append(
+            f"{_range(idx, brand_count)}: the brand's visual guideline (colors/mascot/logo) — match "
+            "this visual identity exactly wherever it applies, especially the mascot if shown."
+        )
+        idx += brand_count
+    if product_count:
+        parts.append(
+            f"{_range(idx, product_count)}: the real product — render it faithfully, don't invent a "
+            "different-looking product."
+        )
+
+    return (
+        "Real reference image(s) will be given directly to the image generator alongside your prompt: "
+        + " ".join(parts)
+        + " Do NOT describe in words what these reference images show — the generator already sees "
+        "them. Instead, describe the SCENE: background, composition, lighting, mood, and how these "
+        "elements should be combined."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Step 2b: execution — turn one angle into an image-gen prompt
 # ---------------------------------------------------------------------------
@@ -272,10 +348,15 @@ def write_image_prompt(
     angle: str,
     brand_profile: dict[str, Any],
     product_profile: dict[str, Any] | None = None,
-    has_reference_image: bool = False,
+    reference_kinds: list[str] | None = None,
     campaign_type: str,
     retry_notes: str | None = None,
 ) -> tuple[str, int]:
+    """`reference_kinds` lists which real images will be given directly to the image
+    generator, one entry per image, in upload order — each "brand" or "product". Any
+    number of each is supported (e.g. several guideline pages, several product photos).
+    The prompt-writing instructions adapt to what's actually available."""
+    reference_kinds = reference_kinds or []
     tool = {
         "name": "record_image_prompt",
         "description": "Record the image generation prompt for this message angle.",
@@ -285,28 +366,13 @@ def write_image_prompt(
             "required": ["image_prompt"],
         },
     }
-    if has_reference_image:
-        product_instruction = (
-            "The actual product photo will be given directly to the image generator as a reference "
-            "image alongside your prompt — do NOT describe what the product itself looks like, the "
-            "generator already sees the real photo. Instead, describe the SCENE to place it in: "
-            "background, composition, lighting, other elements, mood — consistent with the brand and "
-            "message angle. Refer to the product simply as 'the product in the reference image'."
-        )
-    elif product_profile:
-        product_instruction = (
-            "No reference photo is available — the product's visual_description is what the product "
-            "must actually look like in the image. Render it faithfully, don't invent a "
-            "different-looking product."
-        )
-    else:
-        product_instruction = ""
+    reference_instruction = _describe_references(reference_kinds, has_product_profile=bool(product_profile))
 
     system = (
         "You write image-generation prompts for social ad creative. The prompt must faithfully render "
         "the brand's color palette, mascot (if any), and visual style, and fit a "
         f"'{campaign_type}' campaign. Be visually specific — composition, subject, lighting, "
-        f"color palette — not just a restatement of the message angle. {product_instruction}"
+        f"color palette — not just a restatement of the message angle. {reference_instruction}"
     )
     user_content = f"Brand profile: {brand_profile}\n\nMessage angle: {angle}"
     if product_profile:
@@ -330,12 +396,15 @@ def check_image_quality(
     media_type: str,
     brand_profile: dict[str, Any],
     product_profile: dict[str, Any] | None = None,
-    reference_image: tuple[bytes, str] | None = None,
+    reference_images: list[tuple[bytes, str]] | None = None,
+    reference_kinds: list[str] | None = None,
 ) -> tuple[bool, str, int]:
-    """Returns (passed, notes, output_tokens). If `reference_image` (the real product
-    photo) is given, it's shown alongside the generated image for a direct visual
-    comparison — otherwise the check falls back to comparing against the text
-    visual_description only."""
+    """Returns (passed, notes, output_tokens). `reference_images` (real photos actually
+    given to the generator — brand guideline image and/or product photo, matching
+    `reference_kinds` order) are shown alongside the generated image for a direct visual
+    comparison; without them the check falls back to the text profiles only."""
+    reference_images = reference_images or []
+    reference_kinds = reference_kinds or []
     tool = {
         "name": "record_quality_check",
         "description": "Record the brand-compliance verdict for this generated image.",
@@ -356,9 +425,9 @@ def check_image_quality(
         "You review a generated ad image against a brand's profile (color, mascot, style, guideline) "
         "and decide pass/fail. Be strict about color palette and mascot adherence. If a product profile "
         "is given, also check the product in the image matches its visual_description — reject if the "
-        "image shows a different-looking product. If a reference photo of the real product is also "
-        "shown, compare the generated product directly against it (shape, color, proportions, "
-        "distinguishing details) rather than relying only on the text description."
+        "image shows a different-looking product. If real reference photos are also shown (the brand's "
+        "visual guideline and/or the actual product), compare the generated image directly against "
+        "them (colors, mascot, product shape/proportions) rather than relying only on text."
     )
     content: list[dict[str, Any]] = [
         {
@@ -369,8 +438,8 @@ def check_image_quality(
     text = f"Generated image above. Brand profile: {brand_profile}\n\n"
     if product_profile:
         text += f"Product profile: {product_profile}\n\n"
-    if reference_image:
-        ref_bytes, ref_media_type = reference_image
+    labels = {"brand": "brand visual guideline reference photo", "product": "real product reference photo"}
+    for (ref_bytes, ref_media_type), kind in zip(reference_images, reference_kinds):
         content.append(
             {
                 "type": "image",
@@ -381,7 +450,7 @@ def check_image_quality(
                 },
             }
         )
-        text += "Real product reference photo above (second image). "
+        text += f"{labels.get(kind, 'reference photo')} shown above. "
     text += "Does the generated image comply?"
     content.append({"type": "text", "text": text})
     messages = [{"role": "user", "content": content}]
@@ -423,9 +492,10 @@ def write_captions(
         },
     }
     system = (
-        "You write platform-native captions and hashtags for a social ad. Instagram favors "
-        "keyword-rich, SEO-style captions; TikTok favors short, high-velocity hashtags; "
-        "YouTube and Facebook favor slightly longer, descriptive captions. Match the brand's "
+        "You write platform-native captions and hashtags for a social ad. Instagram: medium length "
+        "— roughly 2-4 sentences, keyword-rich, SEO-style, NOT a long paragraph. TikTok: short, "
+        "punchy caption with high-velocity hashtags. Facebook: can be slightly longer and more "
+        "descriptive than Instagram. Match the brand's "
         f"guideline and style, and the '{campaign_type}' campaign type. Be concretely specific to this "
         "product/message — avoid generic filler like 'check this out'."
     )

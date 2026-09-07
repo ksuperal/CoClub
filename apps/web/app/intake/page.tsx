@@ -1,26 +1,40 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { CAMPAIGN_TYPES } from "@/lib/constants";
 
-const CAMPAIGN_TYPES = [
-  ["product_launch", "Product launch"],
-  ["event_announcement", "Event announcement"],
-  ["promo_offer", "Promo / offer"],
-  ["brand_awareness", "Brand awareness"],
-  ["other", "Other"],
-];
+// Shown next to every file input so it's clear upfront what's usable and how.
+const ACCEPTED_FILE_HINT =
+  "Accepted: PNG, JPG, WEBP, or PDF (used as a real visual reference for image generation — " +
+  "PDF pages are rendered into images automatically). GIF is also accepted but read for text " +
+  "only, not usable as a visual reference. You can select multiple files.";
+const ACCEPTED_FILE_TYPES = ".png,.jpg,.jpeg,.webp,.pdf,.gif";
+
+function FileListPreview({ files }: { files: File[] }) {
+  if (files.length === 0) return null;
+  return (
+    <ul className="text-xs text-neutral-500 list-disc list-inside">
+      {files.map((f, i) => (
+        <li key={i}>
+          {f.name} ({(f.size / 1024).toFixed(0)} KB)
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export default function IntakePage() {
   const router = useRouter();
   const [brandName, setBrandName] = useState("");
   const [guidelineText, setGuidelineText] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
 
   const [includeProduct, setIncludeProduct] = useState(true);
   const [productName, setProductName] = useState("");
-  const [productFile, setProductFile] = useState<File | null>(null);
+  const [productFiles, setProductFiles] = useState<File[]>([]);
   const [productDescription, setProductDescription] = useState("");
 
   const [campaignType, setCampaignType] = useState("product_launch");
@@ -33,17 +47,18 @@ export default function IntakePage() {
     e.preventDefault();
     setError(null);
 
-    if (includeProduct && !productFile) {
-      setError("A product photo/file is required — or uncheck 'This campaign is about a specific product'.");
+    if (includeProduct && productFiles.length === 0) {
+      setError(
+        "At least one product photo/file is required — or uncheck 'This campaign is about a specific product'."
+      );
       return;
     }
 
     try {
       let assetPaths: string[] = [];
-      if (file) {
-        setStep("Uploading brand asset…");
-        const { path } = await api.uploadBrandAsset(file);
-        assetPaths = [path];
+      if (files.length > 0) {
+        setStep(`Uploading ${files.length} brand asset(s)…`);
+        assetPaths = await api.uploadBrandAssets(files);
       }
 
       setStep("Extracting brand profile…");
@@ -54,16 +69,16 @@ export default function IntakePage() {
       });
 
       let productId: string | null = null;
-      if (includeProduct && productFile) {
-        setStep("Uploading product photo…");
-        const { path } = await api.uploadProductAsset(productFile);
+      if (includeProduct && productFiles.length > 0) {
+        setStep(`Uploading ${productFiles.length} product file(s)…`);
+        const productAssetPaths = await api.uploadProductAssets(productFiles);
 
         setStep("Extracting product profile…");
         const product = await api.createProduct({
           brand_id: brand.id,
           name: productName,
           description_text: productDescription || undefined,
-          asset_paths: [path],
+          asset_paths: productAssetPaths,
         });
         productId = product.id;
       }
@@ -89,7 +104,10 @@ export default function IntakePage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold mb-6">New campaign</h1>
+      <Link href="/home" className="text-sm text-neutral-500">
+        ← Back to campaigns
+      </Link>
+      <h1 className="text-xl font-semibold mb-6 mt-2">New campaign</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
         <fieldset className="flex flex-col gap-3">
           <legend className="font-medium mb-1">Brand</legend>
@@ -109,8 +127,16 @@ export default function IntakePage() {
             className="border rounded px-3 py-2"
           />
           <label className="text-sm text-neutral-600">
-            Brand guideline file (optional, but takes priority over the text above if provided)
-            <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="block mt-1" />
+            Brand guideline file(s) — optional, but takes priority over the text above if provided
+            <input
+              type="file"
+              multiple
+              accept={ACCEPTED_FILE_TYPES}
+              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+              className="block mt-1"
+            />
+            <span className="block text-xs text-neutral-400 mt-1">{ACCEPTED_FILE_HINT}</span>
+            <FileListPreview files={files} />
           </label>
         </fieldset>
 
@@ -135,14 +161,18 @@ export default function IntakePage() {
                 className="border rounded px-3 py-2"
               />
               <label className="text-sm text-neutral-600">
-                Product photo/file (required — this is what the AI uses as ground truth for what
-                the product actually looks like)
+                Product photo/file(s) — required, this is what the AI uses as ground truth for what
+                the product actually looks like
                 <input
                   type="file"
-                  required={includeProduct}
-                  onChange={(e) => setProductFile(e.target.files?.[0] ?? null)}
+                  multiple
+                  required={includeProduct && productFiles.length === 0}
+                  accept={ACCEPTED_FILE_TYPES}
+                  onChange={(e) => setProductFiles(Array.from(e.target.files ?? []))}
                   className="block mt-1"
                 />
+                <span className="block text-xs text-neutral-400 mt-1">{ACCEPTED_FILE_HINT}</span>
+                <FileListPreview files={productFiles} />
               </label>
               <textarea
                 placeholder="Product description (optional — supplementary to the photo)"

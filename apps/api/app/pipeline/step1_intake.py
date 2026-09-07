@@ -5,7 +5,7 @@ from typing import Any
 from supabase import Client
 
 from ..services import llm, usage
-from ..services.files import download_primary_asset
+from ..services.files import download_assets_with_paths
 
 logger = logging.getLogger(__name__)
 
@@ -17,25 +17,27 @@ def run_intake(
 ) -> dict[str, Any]:
     """Structured extraction of the brand profile, then persists the brand row.
 
-    Prioritizes the uploaded guideline file (if any) as the primary source; pasted
-    guideline text is sent as supplementary context. See llm.extract_brand_profile.
+    Every uploaded guideline file that Claude can read (image or PDF, any count) is
+    sent as the primary source; pasted guideline text is supplementary. See
+    llm.extract_brand_profile.
     """
-    file_bytes: bytes | None = None
-    file_media_type: str | None = None
-    if guideline_asset_paths:
-        file_bytes, file_media_type = download_primary_asset(client, BRAND_ASSETS_BUCKET, guideline_asset_paths[0])
+    downloaded = download_assets_with_paths(client, BRAND_ASSETS_BUCKET, guideline_asset_paths)
+    files = [(file_bytes, media_type) for _, file_bytes, media_type in downloaded]
 
     logger.info(
-        "Step 1 intake for brand '%s': source=%s, pasted_text_len=%d, uploaded_asset_paths=%s",
+        "Step 1 intake for brand '%s': %d/%d uploaded file(s) usable, pasted_text_len=%d",
         name,
-        f"uploaded file ({file_media_type})" if file_bytes else "pasted text only",
+        len(files),
+        len(guideline_asset_paths),
         len(guideline_raw_text or ""),
-        guideline_asset_paths,
     )
 
-    profile, output_tokens = llm.extract_brand_profile(
-        guideline_raw_text, file_bytes=file_bytes, file_media_type=file_media_type
-    )
+    profile, output_tokens = llm.extract_brand_profile(guideline_raw_text, files=files)
+
+    # Claude reports logo/mascot findings by file_index (position in `files` above) —
+    # we persist which real storage path that index maps to ourselves, deterministically,
+    # rather than relying on Claude to echo the path back (which risks hallucination).
+    profile["source_files"] = [path for path, _, _ in downloaded]
 
     logger.info("Step 1 extracted brand profile for '%s':\n%s", name, json.dumps(profile, indent=2))
 

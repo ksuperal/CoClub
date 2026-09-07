@@ -32,15 +32,26 @@ async function uploadFile(endpoint: string, file: File): Promise<{ path: string 
   return res.json();
 }
 
+// Uploads each file one at a time (the backend endpoint only takes one file per
+// request) and collects the resulting storage paths, in order.
+async function uploadFiles(endpoint: string, files: File[]): Promise<string[]> {
+  const paths: string[] = [];
+  for (const file of files) {
+    const { path } = await uploadFile(endpoint, file);
+    paths.push(path);
+  }
+  return paths;
+}
+
 export const api = {
-  uploadBrandAsset: (file: File) => uploadFile("/assets/brand-guideline", file),
+  uploadBrandAssets: (files: File[]) => uploadFiles("/assets/brand-guideline", files),
 
   createBrand: (body: { name: string; guideline_raw_text: string; guideline_asset_paths: string[] }) =>
     request<any>("/brands", { method: "POST", body: JSON.stringify(body) }),
 
   listBrands: () => request<any[]>("/brands"),
 
-  uploadProductAsset: (file: File) => uploadFile("/assets/product", file),
+  uploadProductAssets: (files: File[]) => uploadFiles("/assets/product", files),
 
   createProduct: (body: {
     brand_id: string;
@@ -58,6 +69,8 @@ export const api = {
     brief: string;
     variant_count: number;
   }) => request<any>("/campaigns", { method: "POST", body: JSON.stringify(body) }),
+
+  listCampaigns: () => request<any[]>("/campaigns"),
 
   getCampaign: (id: string) => request<any>(`/campaigns/${id}`),
 

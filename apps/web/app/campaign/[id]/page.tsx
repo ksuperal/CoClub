@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 
@@ -44,7 +45,10 @@ export default function CampaignStatusPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold mb-2">Campaign status</h1>
+      <Link href="/home" className="text-sm text-neutral-500">
+        ← Back to campaigns
+      </Link>
+      <h1 className="text-xl font-semibold mb-2 mt-2">Campaign status</h1>
       <p className="text-sm mb-1">
         Status: <span className="font-medium">{campaign.status}</span>
       </p>
