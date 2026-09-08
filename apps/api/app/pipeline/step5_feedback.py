@@ -32,7 +32,9 @@ def run_feedback_job(campaign_id: str) -> None:
         for post in posts:
             if post["status"] == "posted" and post["external_post_id"]:
                 has_real_data = True
-                metrics = social.fetch_metrics(post["external_post_id"])
+                metrics = social.fetch_metrics(
+                    client, user_id=campaign["user_id"], platform=post["platform"], external_post_id=post["external_post_id"]
+                )
                 client.table("post_metrics").insert({"post_id": post["id"], **metrics}).execute()
                 score = _engagement_score(metrics)
                 variant_score += score
@@ -55,9 +57,9 @@ def run_feedback_job(campaign_id: str) -> None:
 
     if not verdicts or not any(v["has_real_data"] for v in verdicts):
         summary_text = (
-            "No live post data is available yet for this campaign — posting hasn't been "
-            "connected (Ayrshare credentials aren't configured), so there's nothing to report "
-            "on. Add AYRSHARE_API_KEY and re-run posting to get real performance data."
+            "No live post data is available yet for this campaign — no connected social "
+            "accounts were available to post to, so there's nothing to report on. Connect "
+            "your accounts under Settings and re-run posting to get real performance data."
         )
         output_tokens = 0
     else:

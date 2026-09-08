@@ -52,6 +52,9 @@ export default function HomePage() {
           <Link href="/intake" className="bg-black text-white rounded px-3 py-2 text-sm">
             + New campaign
           </Link>
+          <Link href="/settings/social" className="text-sm text-neutral-500">
+            Social accounts
+          </Link>
           <button onClick={handleSignOut} className="text-sm text-neutral-500">
             Sign out
           </button>

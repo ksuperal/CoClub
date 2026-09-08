@@ -165,4 +165,4 @@ def post(campaign_id: str, user_id: str = Depends(get_current_user_id)):
     campaign = _get_owned_campaign(client, campaign_id, user_id)
     if campaign["status"] != "approved":
         raise HTTPException(status_code=409, detail=f"Campaign is '{campaign['status']}', expected 'approved'")
-    return post_campaign(client, campaign_id=campaign_id)
+    return post_campaign(client, campaign_id=campaign_id, user_id=user_id)

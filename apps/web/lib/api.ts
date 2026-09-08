@@ -90,4 +90,11 @@ export const api = {
   getReport: (id: string) => request<any>(`/campaigns/${id}/report`),
 
   runReportNow: (id: string) => request<any>(`/campaigns/${id}/report/run-now`, { method: "POST" }),
+
+  listSocialAccounts: () => request<any[]>("/social/accounts"),
+
+  connectSocial: (platform: "facebook" | "tiktok") =>
+    request<{ authorize_url: string }>(`/social/connect/${platform}`, { method: "POST" }),
+
+  disconnectSocial: (id: string) => request(`/social/accounts/${id}`, { method: "DELETE" }),
 };

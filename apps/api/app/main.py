@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import assets, brands, campaigns, products, reports
+from .routers import assets, brands, campaigns, products, reports, social
 
 # INFO-level logs from our own modules (e.g. pipeline/step1_intake.py's extraction
 # debug logs) are silent by default since the root logger defaults to WARNING —
@@ -25,6 +25,7 @@ app.include_router(products.router)
 app.include_router(campaigns.router)
 app.include_router(reports.router)
 app.include_router(assets.router)
+app.include_router(social.router)
 
 
 @app.get("/health")

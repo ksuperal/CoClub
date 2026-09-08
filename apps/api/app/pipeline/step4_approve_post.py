@@ -15,7 +15,7 @@ def approve_campaign(client: Client, *, campaign_id: str, approved_variant_ids: 
     client.table("campaigns").update({"status": "approved"}).eq("id", campaign_id).execute()
 
 
-def post_campaign(client: Client, *, campaign_id: str) -> list[dict[str, Any]]:
+def post_campaign(client: Client, *, campaign_id: str, user_id: str) -> list[dict[str, Any]]:
     client.table("campaigns").update({"status": "posting"}).eq("id", campaign_id).execute()
 
     approved_variants = (
@@ -33,6 +33,8 @@ def post_campaign(client: Client, *, campaign_id: str) -> list[dict[str, Any]]:
             captions = client.table("captions").select("*").eq("variant_id", variant["id"]).execute().data
             for caption in captions:
                 result = social.post_to_platform(
+                    client,
+                    user_id=user_id,
                     platform=caption["platform"],
                     caption_text=caption["caption_text"],
                     hashtags=caption["hashtags"],
