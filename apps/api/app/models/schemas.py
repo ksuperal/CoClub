@@ -109,6 +109,11 @@ class CaptionOut(BaseModel):
     hashtags: list[str]
 
 
+class CaptionUpdate(BaseModel):
+    caption_text: str
+    hashtags: list[str]
+
+
 class ApproveRequest(BaseModel):
     approved_variant_ids: list[str]
 

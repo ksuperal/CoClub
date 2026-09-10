@@ -10,6 +10,7 @@ from ..models.schemas import (
     CampaignListItem,
     CampaignOut,
     CaptionOut,
+    CaptionUpdate,
     PostOut,
     VariantOut,
 )
@@ -134,6 +135,17 @@ def generate_copy(campaign_id: str, user_id: str = Depends(get_current_user_id))
         raise HTTPException(
             status_code=409, detail=f"Campaign is '{campaign['status']}', expected 'awaiting_approval'"
         )
+
+    # Idempotency guard: a second call for the same campaign (e.g. React StrictMode's
+    # double-invoked effects in dev, a retried request) must not generate a second set
+    # of captions — that would silently double-post everything in Step 4. If captions
+    # already exist for any variant here, return those instead of generating more.
+    variant_ids = [v["id"] for v in client.table("variants").select("id").eq("campaign_id", campaign_id).execute().data]
+    if variant_ids:
+        existing = client.table("captions").select("*").in_("variant_id", variant_ids).execute().data
+        if existing:
+            return existing
+
     return run_copywriting(client, user_id=user_id, campaign=campaign)
 
 
@@ -145,6 +157,34 @@ def list_captions(campaign_id: str, user_id: str = Depends(get_current_user_id))
     if not variant_ids:
         return []
     return client.table("captions").select("*").in_("variant_id", variant_ids).execute().data
+
+
+@router.patch("/{campaign_id}/captions/{caption_id}", response_model=CaptionOut)
+def update_caption(
+    campaign_id: str, caption_id: str, body: CaptionUpdate, user_id: str = Depends(get_current_user_id)
+):
+    client = get_service_client()
+    campaign = _get_owned_campaign(client, campaign_id, user_id)
+    if campaign["status"] != "awaiting_approval":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Campaign is '{campaign['status']}' — captions can only be edited before approving/posting",
+        )
+
+    caption = client.table("captions").select("id, variant_id").eq("id", caption_id).execute().data
+    if not caption:
+        raise HTTPException(status_code=404, detail="Caption not found")
+    variant = client.table("variants").select("campaign_id").eq("id", caption[0]["variant_id"]).execute().data
+    if not variant or variant[0]["campaign_id"] != campaign_id:
+        raise HTTPException(status_code=404, detail="Caption not found")
+
+    updated = (
+        client.table("captions")
+        .update({"caption_text": body.caption_text, "hashtags": body.hashtags})
+        .eq("id", caption_id)
+        .execute()
+    )
+    return updated.data[0]
 
 
 @router.post("/{campaign_id}/approve")

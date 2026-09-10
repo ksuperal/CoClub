@@ -21,6 +21,80 @@ type Caption = {
   hashtags: string[];
 };
 
+function hashtagsToText(hashtags: string[]): string {
+  return hashtags.map((h) => `#${h}`).join(" ");
+}
+
+// Accepts either "#foo #bar" or "foo, bar" — strips leading #s and splits on
+// whitespace/commas, so editors don't have to think about the exact format.
+function textToHashtags(text: string): string[] {
+  return text
+    .split(/[\s,]+/)
+    .map((h) => h.replace(/^#/, "").trim())
+    .filter(Boolean);
+}
+
+function EditableCaption({
+  campaignId,
+  caption,
+  onSaved,
+}: {
+  campaignId: string;
+  caption: Caption;
+  onSaved: (updated: Caption) => void;
+}) {
+  const [captionText, setCaptionText] = useState(caption.caption_text);
+  const [hashtagsText, setHashtagsText] = useState(hashtagsToText(caption.hashtags));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const dirty = captionText !== caption.caption_text || hashtagsText !== hashtagsToText(caption.hashtags);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await api.updateCaption(campaignId, caption.id, {
+        caption_text: captionText,
+        hashtags: textToHashtags(hashtagsText),
+      });
+      onSaved(updated);
+    } catch (err: any) {
+      setError(err.message ?? String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="text-xs bg-neutral-100 rounded p-2 flex flex-col gap-1">
+      <span className="font-medium">{caption.platform}</span>
+      <textarea
+        value={captionText}
+        onChange={(e) => setCaptionText(e.target.value)}
+        rows={3}
+        className="w-full border rounded p-1 text-xs"
+      />
+      <input
+        value={hashtagsText}
+        onChange={(e) => setHashtagsText(e.target.value)}
+        placeholder="#hashtags separated by spaces"
+        className="w-full border rounded p-1 text-xs text-neutral-500"
+      />
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleSave}
+          disabled={!dirty || saving}
+          className="border rounded px-2 py-1 text-xs disabled:opacity-50"
+        >
+          {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+        </button>
+        {error && <span className="text-red-600">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function VariantsPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -60,6 +134,10 @@ export default function VariantsPage() {
     });
   }
 
+  function handleCaptionSaved(updated: Caption) {
+    setCaptions((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+  }
+
   async function handleApproveAndPost() {
     setError(null);
     try {
@@ -81,7 +159,8 @@ export default function VariantsPage() {
       </Link>
       <h1 className="text-xl font-semibold mb-2 mt-2">Review variants</h1>
       <p className="text-sm text-neutral-500 mb-6">
-        Select which variants to approve for posting. Unchecked variants are rejected.
+        Select which variants to approve for posting. Unchecked variants are rejected. Edit
+        any caption below before posting — changes save per caption, independently.
       </p>
 
       {step && <p className="text-sm text-neutral-500 mb-4">{step}</p>}
@@ -104,10 +183,7 @@ export default function VariantsPage() {
                 quality check: {v.quality_check_status}
               </p>
               {variantCaptions.map((c) => (
-                <div key={c.id} className="text-xs bg-neutral-100 rounded p-2">
-                  <span className="font-medium">{c.platform}:</span> {c.caption_text}
-                  <div className="text-neutral-500">{c.hashtags.map((h) => `#${h}`).join(" ")}</div>
-                </div>
+                <EditableCaption key={c.id} campaignId={id} caption={c} onSaved={handleCaptionSaved} />
               ))}
             </div>
           );

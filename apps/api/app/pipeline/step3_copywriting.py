@@ -42,7 +42,11 @@ def run_copywriting(client: Client, *, user_id: str, campaign: dict[str, Any]) -
             }
             for c in captions
         ]
-        inserted = client.table("captions").insert(rows).execute()
+        # Upsert, not insert: if this runs twice concurrently for the same variant
+        # (e.g. a StrictMode double-fired request racing another call), the
+        # captions_variant_platform_unique constraint makes the second write
+        # replace the first instead of creating a duplicate row.
+        inserted = client.table("captions").upsert(rows, on_conflict="variant_id,platform").execute()
         all_captions.extend(inserted.data)
 
     return all_captions

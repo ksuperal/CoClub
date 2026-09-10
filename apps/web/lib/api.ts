@@ -82,6 +82,12 @@ export const api = {
 
   listCaptions: (id: string) => request<any[]>(`/campaigns/${id}/captions`),
 
+  updateCaption: (campaignId: string, captionId: string, body: { caption_text: string; hashtags: string[] }) =>
+    request<any>(`/campaigns/${campaignId}/captions/${captionId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
   approve: (id: string, approved_variant_ids: string[]) =>
     request(`/campaigns/${id}/approve`, { method: "POST", body: JSON.stringify({ approved_variant_ids }) }),
 
