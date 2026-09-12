@@ -10,10 +10,19 @@
       `GET /social/posting-time-recommendation/{platform}`) is built but gated
       behind 10+ real posts on a platform — not surfaced in the UI yet. Wire it in
       once real usage data makes it worth showing.
-- [ ] Consider connecting to **Meta Ads Manager** (and TikTok's equivalent) so the
-      feedback step can surface whether a post is a good candidate to **boost** —
-      i.e. pull ad-eligible performance signals, not just organic `post_metrics`
-      (likes/comments/shares/views already collected via `social.fetch_metrics`).
+- [ ] **Ads/boost integration** — a separate API from what's built (Graph API is
+      organic-only): Meta's **Marketing API**, needing `ads_read` (read-only spend/
+      reach/CPM, lower review burden) or `ads_management` (app actually spends the
+      customer's money — real financial-transaction liability, its own Ad Account
+      connection per customer, harder review). Recommended staged approach:
+      1. Now/next: **deep-link** the Recommendation section's suggested variant into
+         Meta's own native "Boost Post" flow — Meta handles all spend/payment/
+         confirmation UI, CoClub never touches money.
+      2. Later, only if wanted: add `ads_read` to cite real cost/reach numbers in
+         the recommendation instead of staying directional.
+      3. `ads_management` (CoClub programmatically spending on the customer's
+         behalf) — probably never; the liability/UX cost is high for what it adds
+         over option 1.
 
 ## Housekeeping
 

@@ -4,7 +4,7 @@ from typing import Any
 from supabase import Client
 
 from ..services import social
-from ..services.scheduler import schedule_feedback_job
+from ..services.scheduler import schedule_feedback_job, schedule_metrics_polling
 
 
 def approve_campaign(client: Client, *, campaign_id: str, approved_variant_ids: list[str]) -> None:
@@ -63,6 +63,11 @@ def post_campaign(client: Client, *, campaign_id: str, user_id: str) -> list[dic
 
         client.table("campaigns").update({"status": "posted"}).eq("id", campaign_id).execute()
         schedule_feedback_job(campaign_id)
+        # Only worth polling if something actually landed — a campaign where every
+        # post came back pending_credentials/failed has nothing for refresh_metrics
+        # to find every 6 hours.
+        if any(p["status"] == "posted" for p in created_posts):
+            schedule_metrics_polling(campaign_id)
         client.table("campaigns").update({"status": "awaiting_feedback"}).eq("id", campaign_id).execute()
         return created_posts
     except Exception as exc:  # noqa: BLE001

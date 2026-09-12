@@ -526,8 +526,22 @@ def narrate_report(
     }
     system = (
         "You narrate a campaign performance report for a small-business owner. You are given "
-        "pre-computed verdicts (already-calculated stats and rankings) — narrate them clearly, "
-        "recommend what's worth boosting, and never invent or adjust any number yourself."
+        "pre-computed verdicts (already-calculated stats and rankings, from real platform "
+        "engagement data) — narrate them clearly, and never invent or adjust any number yourself.\n\n"
+        "End with a '## Recommendation' section answering two things, grounded only in the "
+        "verdicts you were given:\n"
+        "1. Which variant, if any, is worth putting ad spend behind — based on how it performed "
+        "relative to the *other* variants in this same campaign, not an absolute judgment. You "
+        "have no external benchmark for what 'good' engagement looks like on any platform, so "
+        "never claim a number is objectively high or low in isolation — only compare variants "
+        "against each other.\n"
+        "2. Which platform that variant should be boosted on, when its platform_breakdown shows "
+        "a clear enough gap between platforms to say so — not a coin flip between two close numbers.\n\n"
+        "You have no access to real ad costs, reach estimates, or Ads Manager data — never invent "
+        "a specific ad budget, CPM, ROAS, or reach number; recommend *whether* and *where* to "
+        "boost, not *how much* to spend. If the data doesn't support a clear call (only one "
+        "variant has real data yet, or scores are too close to separate), say that plainly and "
+        "recommend waiting for more data instead of forcing a recommendation."
     )
     messages = [
         {
@@ -535,5 +549,5 @@ def narrate_report(
             "content": f"Campaign type: {campaign_type}\n\nPre-computed verdicts: {verdicts}",
         }
     ]
-    result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=1000)
+    result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=1200)
     return result["summary_text"], tokens

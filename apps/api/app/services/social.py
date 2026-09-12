@@ -176,9 +176,15 @@ def _post_to_tiktok(account: dict[str, Any], caption_text: str, hashtags: list[s
     return PostResult(status="posted", external_post_id=publish_id, permalink=None)
 
 
-def fetch_metrics(client: Client, *, user_id: str, platform: str, external_post_id: str) -> dict[str, int]:
-    """Fetches analytics for a posted item. Returns zeros if the account isn't connected
-    or the call fails — Step 5 treats that as "no data yet", not fabricated numbers."""
+def fetch_metrics(client: Client, *, user_id: str, platform: str, external_post_id: str) -> dict[str, int] | None:
+    """Fetches analytics for a posted item. Returns zeros only for the genuine "no
+    data available" case (account not connected, or a platform — TikTok — that
+    doesn't expose post insights at all). Returns None if the call itself failed
+    (rate limit, network error, transient API failure) — this is NOT the same as
+    zero engagement, and the caller (step5_feedback.refresh_metrics) must skip
+    writing a snapshot rather than recording a false zero. A rate-limited request
+    isn't retried here; the next scheduled poll a few hours later tries again
+    naturally, which is already a form of backoff without extra retry logic."""
     zeros = {"likes": 0, "comments": 0, "shares": 0, "views": 0}
     account = _get_account(client, user_id=user_id, platform=platform)
     if account is None:
@@ -201,9 +207,9 @@ def fetch_metrics(client: Client, *, user_id: str, platform: str, external_post_
                 "shares": data.get("shares", {}).get("count", 0),
                 "views": 0,
             }
-        # TikTok's Content Posting API doesn't expose public post insights — Step 5
-        # already tolerates zeros as "no data yet".
+        # TikTok's Content Posting API doesn't expose public post insights at all —
+        # this is a genuine "no data available", not a failed call, so zeros is correct.
         return zeros
     except Exception:  # noqa: BLE001
         logger.exception("fetch_metrics failed for %s post %s", platform, external_post_id)
-        return zeros
+        return None

@@ -9,11 +9,14 @@ invoked by the APScheduler job registered in services/scheduler.py (no HTTP requ
 context, so it builds its own service-role client) or via the manual "run now" route.
 """
 
+import logging
 from typing import Any
 
 from ..db import get_service_client
 from ..services import llm, social, usage
 from ..services.scoring import engagement_score
+
+logger = logging.getLogger(__name__)
 
 
 def refresh_metrics(client, campaign_id: str) -> list[dict[str, Any]]:
@@ -38,6 +41,11 @@ def refresh_metrics(client, campaign_id: str) -> list[dict[str, Any]]:
             metrics = social.fetch_metrics(
                 client, user_id=campaign["user_id"], platform=post["platform"], external_post_id=post["external_post_id"]
             )
+            if metrics is None:
+                # The call itself failed (rate limit, network, transient API error) —
+                # not the same as zero engagement. Skip writing a snapshot rather than
+                # recording a false zero; the next scheduled poll tries again.
+                continue
             row = client.table("post_metrics").insert({"post_id": post["id"], **metrics}).execute().data[0]
             fetched.append(
                 {
@@ -50,6 +58,19 @@ def refresh_metrics(client, campaign_id: str) -> list[dict[str, Any]]:
             )
 
     return fetched
+
+
+def run_scheduled_metrics_refresh(campaign_id: str) -> None:
+    """Entry point for the recurring background poll (services/scheduler.py,
+    schedule_metrics_polling) — same no-HTTP-context situation as run_feedback_job,
+    builds its own client. Logs and swallows errors so one bad tick (a token expired,
+    a platform API hiccup) doesn't take down the scheduler or spam retries — the
+    next tick a few hours later just tries again."""
+    try:
+        client = get_service_client()
+        refresh_metrics(client, campaign_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("Scheduled metrics refresh failed for campaign %s", campaign_id)
 
 
 def run_feedback_job(campaign_id: str) -> None:
