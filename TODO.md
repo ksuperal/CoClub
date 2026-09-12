@@ -30,3 +30,11 @@
       (DoS via Image Optimizer, HTTP request smuggling in rewrites, Server
       Components DoS) — none introduced by anything in this repo, all in `next`
       itself. Worth a deliberate upgrade pass + re-test, not a drive-by bump.
+- [ ] **Production Supabase project** — currently on the free tier, which
+      auto-pauses after 7 days of no API activity (fine for solo dev, not
+      acceptable once real customers depend on it) and has weaker backup
+      guarantees. Before real launch: spin up a **separate, paid** Supabase
+      project for production (don't just upgrade this one), run all 5 migrations
+      fresh against it, and point the deployed backend's `.env` there — keeps
+      real customer data from ever mixing with this project's accumulated test
+      brands/campaigns (the duplicate "Zucgoo"/"Slack" test entries, etc.).
