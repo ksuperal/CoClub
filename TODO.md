@@ -63,6 +63,37 @@
       screen shows a "Generating…" placeholder and disables its approve checkbox
       until `generation_status = 'generated'`, but there's no notification when it
       finishes; the user has to revisit the page.
+- [ ] **Split image vs. video into two separate intake screens, switched by a
+      toggle button** — instead of today's single `/intake` form with an embedded
+      "Generate as: Image / Video" radio pair (`apps/web/app/intake/page.tsx`)
+      that shows/hides fields inline. Two distinct screens (e.g. a top-level
+      toggle that swaps which form renders, or two routes like `/intake/image`
+      and `/intake/video`) so each medium's intake can diverge on its own terms
+      as video-specific options grow (resolution/duration once exposed, motion
+      style presets, etc.) without both crowding one form. Needs a design
+      decision on whether the toggle lives above the form (single route,
+      client-side swap) or as separate routes — affects how `media_type` state
+      and the shared fields (brand/product/campaign brief) are threaded through.
+
+## Copywriting (Step 3)
+
+- [ ] **Improve caption/hashtag quality across all platforms** — currently one
+      LLM call (`llm.write_captions`, invoked from `pipeline/step3_copywriting.py`)
+      generates all platforms' captions together off a single system prompt with
+      just a sentence of style guidance per platform (Instagram: "medium length,
+      SEO-style"; TikTok: "short, punchy, high-velocity hashtags"; Facebook: "can
+      be slightly longer"). No dedicated research into what actually performs
+      well per platform yet. Candidate directions, not yet decided between:
+      1. Split into one LLM call per platform with a much more detailed,
+         platform-specific system prompt (current character-limit/format norms,
+         hook-writing patterns, hashtag-count conventions) — more tokens/cost per
+         campaign, likely better per-platform quality.
+      2. Feed real engagement data back in once it accumulates (ties into the
+         Step 5 metrics pipeline already built) — e.g. surface which past
+         captions' styles correlated with higher `engagement_score` as few-shot
+         context for future generations, rather than a static prompt forever.
+      3. Generate multiple caption variants per platform and let the user pick,
+         instead of one committed caption per platform today.
 
 ## Housekeeping
 
