@@ -27,6 +27,23 @@ function hashtagsToText(hashtags: string[]): string {
   return hashtags.map((h) => `#${h}`).join(" ");
 }
 
+type PostingTimeRecommendation = {
+  platform: string;
+  recommended_hour_utc: number | null;
+  data_points: number;
+  confidence: string;
+};
+type RealPostingTimeRecommendation = PostingTimeRecommendation & { recommended_hour_utc: number };
+
+// e.g. 18 -> "6:00 PM UTC" — explicitly labeled UTC since the recommendation is
+// computed in UTC, not the viewer's local time (no brand/account timezone is
+// stored anywhere yet — see services/posting_time.py).
+function formatHourUtc(hour: number): string {
+  const period = hour < 12 ? "AM" : "PM";
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+  return `${displayHour}:00 ${period} UTC`;
+}
+
 // Accepts either "#foo #bar" or "foo, bar" — strips leading #s and splits on
 // whitespace/commas, so editors don't have to think about the exact format.
 function textToHashtags(text: string): string[] {
@@ -106,6 +123,7 @@ export default function VariantsPage() {
   const [step, setStep] = useState<string | null>("Loading…");
   const [error, setError] = useState<string | null>(null);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
+  const [recommendations, setRecommendations] = useState<RealPostingTimeRecommendation[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -125,6 +143,25 @@ export default function VariantsPage() {
         }
         setCaptions(c);
         setStep(null);
+
+        // Best-posting-time: only ever shown if there's real signal — the endpoint
+        // itself is gated (services/posting_time.py) behind 10+ real posts on a
+        // platform, returning recommended_hour_utc: null below that. A failure here
+        // is non-critical (purely informational), so it's swallowed rather than
+        // blocking the rest of the review flow.
+        try {
+          const platforms = [...new Set(c.map((caption: Caption) => caption.platform))];
+          const results = await Promise.all(
+            platforms.map((p) => api.getPostingTimeRecommendation(p).catch(() => null))
+          );
+          setRecommendations(
+            results.filter(
+              (r): r is RealPostingTimeRecommendation => !!r && r.recommended_hour_utc !== null
+            )
+          );
+        } catch {
+          // purely informational — never surfaces as a page-level error
+        }
       } catch (err: any) {
         setError(err.message ?? String(err));
         setStep(null);
@@ -175,6 +212,17 @@ export default function VariantsPage() {
         <p className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 text-sm mb-4">
           Note: {warningMessage}
         </p>
+      )}
+      {recommendations.length > 0 && (
+        <div className="text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2 text-sm mb-4">
+          <p className="font-medium mb-1">Recommended posting time</p>
+          {recommendations.map((r) => (
+            <p key={r.platform}>
+              {r.platform}: {formatHourUtc(r.recommended_hour_utc)} (based on {r.confidence} confidence from your
+              past posts)
+            </p>
+          ))}
+        </div>
       )}
 
       <div className="grid grid-cols-2 gap-4 mb-8">

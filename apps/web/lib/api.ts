@@ -107,4 +107,9 @@ export const api = {
     request<{ authorize_url: string }>(`/social/connect/${platform}`, { method: "POST" }),
 
   disconnectSocial: (id: string) => request(`/social/accounts/${id}`, { method: "DELETE" }),
+
+  getPostingTimeRecommendation: (platform: string) =>
+    request<{ platform: string; recommended_hour_utc: number | null; data_points: number; confidence: string }>(
+      `/social/posting-time-recommendation/${platform}`
+    ),
 };

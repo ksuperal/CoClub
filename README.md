@@ -127,3 +127,9 @@ TikTok posting additionally stays private/draft-only until the TikTok app clears
 (see "Social posting setup" above) — this is a platform-side gate, not a bug. Usage is
 logged per LLM/image-gen call to `usage_events` now so token-based billing can be added
 later without re-instrumenting anything.
+
+
+Feat-
+Message-
+Fix-
+Bug-
