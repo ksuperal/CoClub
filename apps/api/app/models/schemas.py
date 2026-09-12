@@ -134,3 +134,26 @@ class CampaignReportOut(BaseModel):
     top_variant_id: str | None
     verdicts: list[dict[str, Any]]
     created_at: datetime
+
+
+class MetricsSnapshotOut(BaseModel):
+    """One `post_metrics` row, with enough context (platform, which variant/post)
+    to plot as one point on the metrics graph without extra client-side lookups."""
+
+    id: str
+    post_id: str
+    variant_id: str
+    platform: str
+    likes: int
+    comments: int
+    shares: int
+    views: int
+    engagement_score: int
+    fetched_at: datetime
+
+
+class PostingTimeRecommendation(BaseModel):
+    platform: str
+    recommended_hour_utc: int | None
+    data_points: int
+    confidence: Literal["insufficient_data", "low", "medium", "high"]

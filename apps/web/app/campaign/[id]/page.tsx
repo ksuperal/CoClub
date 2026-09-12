@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
+import { downloadImage, variantFilename } from "@/lib/download";
+import { DownloadIcon } from "@/components/icons";
+import MetricsChart from "./MetricsChart";
 
 type Variant = {
   id: string;
@@ -27,17 +30,26 @@ export default function CampaignStatusPage() {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [captions, setCaptions] = useState<Caption[]>([]);
   const [report, setReport] = useState<any>(null);
+  const [metrics, setMetrics] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [runningReport, setRunningReport] = useState(false);
+  const [refreshingMetrics, setRefreshingMetrics] = useState(false);
+  const [variantFilter, setVariantFilter] = useState<"approved" | "all">("approved");
 
   async function refresh() {
     try {
       const c = await api.getCampaign(id);
       setCampaign(c);
-      const [v, cap, r] = await Promise.all([api.listVariants(id), api.listCaptions(id), api.getReport(id)]);
+      const [v, cap, r, m] = await Promise.all([
+        api.listVariants(id),
+        api.listCaptions(id),
+        api.getReport(id),
+        api.getMetricsHistory(id),
+      ]);
       setVariants(v);
       setCaptions(cap);
       setReport(r);
+      setMetrics(m);
     } catch (err: any) {
       setError(err.message ?? String(err));
     }
@@ -61,7 +73,26 @@ export default function CampaignStatusPage() {
     }
   }
 
+  // No LLM call — just fetches live numbers from each connected platform and adds
+  // a point to the graph. Safe to click anytime there's a posted post, on a
+  // `completed` campaign included (its posts are often still live).
+  async function handleRefreshMetrics() {
+    setRefreshingMetrics(true);
+    setError(null);
+    try {
+      await api.refreshMetrics(id);
+      const m = await api.getMetricsHistory(id);
+      setMetrics(m);
+    } catch (err: any) {
+      setError(err.message ?? String(err));
+    } finally {
+      setRefreshingMetrics(false);
+    }
+  }
+
   if (!campaign) return <p className="text-sm text-neutral-500">Loading…</p>;
+
+  const hasPostedPosts = metrics.length > 0 || ["posted", "awaiting_feedback", "completed"].includes(campaign.status);
 
   return (
     <div>
@@ -74,6 +105,22 @@ export default function CampaignStatusPage() {
       </p>
       {campaign.error_message && <p className="text-red-600 text-sm mb-4">{campaign.error_message}</p>}
       {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
+
+      {hasPostedPosts && (
+        <div className="border rounded p-4 mt-4 mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-medium">Engagement over time</h2>
+            <button
+              onClick={handleRefreshMetrics}
+              disabled={refreshingMetrics}
+              className="border rounded px-3 py-1.5 text-sm disabled:opacity-50"
+            >
+              {refreshingMetrics ? "Refreshing…" : "Refresh metrics"}
+            </button>
+          </div>
+          <MetricsChart snapshots={metrics} />
+        </div>
+      )}
 
       {campaign.status === "awaiting_feedback" && (
         <button
@@ -94,9 +141,27 @@ export default function CampaignStatusPage() {
 
       {variants.length > 0 && (
         <>
-          <h2 className="font-medium mb-3">Variants & captions</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-medium">Variants & captions</h2>
+            <div className="flex items-center gap-1 text-xs border rounded p-0.5">
+              <button
+                onClick={() => setVariantFilter("approved")}
+                className={`px-2 py-1 rounded ${variantFilter === "approved" ? "bg-black text-white" : "text-neutral-500"}`}
+              >
+                Approved
+              </button>
+              <button
+                onClick={() => setVariantFilter("all")}
+                className={`px-2 py-1 rounded ${variantFilter === "all" ? "bg-black text-white" : "text-neutral-500"}`}
+              >
+                All
+              </button>
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-4">
-            {variants.map((v) => {
+            {variants
+              .filter((v) => variantFilter === "all" || v.status === "approved")
+              .map((v) => {
               const variantCaptions = captions.filter((c) => c.variant_id === v.id);
               return (
                 <div key={v.id} className="border rounded p-3 flex flex-col gap-2">
@@ -117,6 +182,16 @@ export default function CampaignStatusPage() {
                   {v.image_url && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={v.image_url} alt={v.message_angle} className="rounded" />
+                  )}
+                  {v.image_url && (
+                    <button
+                      onClick={() => downloadImage(v.image_url!, variantFilename(v.message_angle, v.id))}
+                      aria-label="Download image"
+                      title="Download image"
+                      className="self-start p-1.5 rounded-full border border-neutral-200 bg-neutral-50 text-neutral-500 hover:bg-black hover:text-white hover:border-black transition-colors"
+                    >
+                      <DownloadIcon className="w-4 h-4" />
+                    </button>
                   )}
                   {variantCaptions.map((c) => (
                     <div key={c.id} className="text-xs bg-neutral-100 rounded p-2">

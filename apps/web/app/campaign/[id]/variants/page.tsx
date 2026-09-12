@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { downloadImage, variantFilename } from "@/lib/download";
+import { DownloadIcon } from "@/components/icons";
 
 type Variant = {
   id: string;
@@ -179,9 +181,21 @@ export default function VariantsPage() {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={v.image_url} alt={v.message_angle} className="rounded" />
               )}
-              <p className="text-xs text-neutral-400">
-                quality check: {v.quality_check_status}
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-neutral-400">
+                  quality check: {v.quality_check_status}
+                </p>
+                {v.image_url && (
+                  <button
+                    onClick={() => downloadImage(v.image_url!, variantFilename(v.message_angle, v.id))}
+                    aria-label="Download image"
+                    title="Download image"
+                    className="p-1.5 rounded-full border border-neutral-200 bg-neutral-50 text-neutral-500 hover:bg-black hover:text-white hover:border-black transition-colors"
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
               {variantCaptions.map((c) => (
                 <EditableCaption key={c.id} campaignId={id} caption={c} onSaved={handleCaptionSaved} />
               ))}

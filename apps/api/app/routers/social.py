@@ -16,7 +16,8 @@ from supabase import Client
 
 from ..config import get_settings
 from ..db import get_current_user_id, get_service_client
-from ..services import crypto, meta_oauth, oauth_state, tiktok_oauth
+from ..models.schemas import Platform, PostingTimeRecommendation
+from ..services import crypto, meta_oauth, oauth_state, posting_time, tiktok_oauth
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,15 @@ def callback_tiktok(code: str | None = None, state: str | None = None, error: st
     )
 
     return RedirectResponse(f"{frontend}/settings/social?connected=tiktok")
+
+
+@router.get("/social/posting-time-recommendation/{platform}", response_model=PostingTimeRecommendation)
+def get_posting_time_recommendation(platform: Platform, user_id: str = Depends(get_current_user_id)):
+    """Not surfaced in the UI yet — gated behind a minimum amount of real posting
+    history (see services/posting_time.py). Returns confidence: "insufficient_data"
+    for everyone today; that's expected, not a bug."""
+    client = get_service_client()
+    return posting_time.recommend_posting_hour(client, user_id=user_id, platform=platform)
 
 
 @router.delete("/social/accounts/{account_id}", status_code=204)

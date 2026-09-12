@@ -11,12 +11,15 @@ from ..models.schemas import (
     CampaignOut,
     CaptionOut,
     CaptionUpdate,
+    MetricsSnapshotOut,
     PostOut,
     VariantOut,
 )
 from ..pipeline.step2_variants import run_variant_generation
 from ..pipeline.step3_copywriting import run_copywriting
 from ..pipeline.step4_approve_post import approve_campaign, post_campaign
+from ..pipeline.step5_feedback import refresh_metrics as _refresh_metrics
+from ..services.scoring import engagement_score
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -206,3 +209,43 @@ def post(campaign_id: str, user_id: str = Depends(get_current_user_id)):
     if campaign["status"] != "approved":
         raise HTTPException(status_code=409, detail=f"Campaign is '{campaign['status']}', expected 'approved'")
     return post_campaign(client, campaign_id=campaign_id, user_id=user_id)
+
+
+@router.post("/{campaign_id}/metrics/refresh", response_model=list[MetricsSnapshotOut])
+def refresh_campaign_metrics(campaign_id: str, user_id: str = Depends(get_current_user_id)):
+    """Fetches fresh metrics from each connected platform and stores a new snapshot
+    per post. No LLM call, no status change — unlike approve/post/generate-copy this
+    has no status-transition guard, since it doesn't move the pipeline forward. Safe
+    to call anytime there's at least one posted post, on a `completed` campaign
+    included (its posts are often still live and earning engagement)."""
+    client = get_service_client()
+    _get_owned_campaign(client, campaign_id, user_id)
+    return _refresh_metrics(client, campaign_id)
+
+
+@router.get("/{campaign_id}/metrics/history", response_model=list[MetricsSnapshotOut])
+def get_campaign_metrics_history(campaign_id: str, user_id: str = Depends(get_current_user_id)):
+    """Every metrics snapshot ever fetched for this campaign's posts — the full
+    history the graph renders, not just the latest point."""
+    client = get_service_client()
+    _get_owned_campaign(client, campaign_id, user_id)
+
+    variant_ids = [v["id"] for v in client.table("variants").select("id").eq("campaign_id", campaign_id).execute().data]
+    if not variant_ids:
+        return []
+
+    posts = client.table("posts").select("id, variant_id, platform").in_("variant_id", variant_ids).execute().data
+    if not posts:
+        return []
+    post_by_id = {p["id"]: p for p in posts}
+
+    metrics = client.table("post_metrics").select("*").in_("post_id", list(post_by_id.keys())).execute().data
+    return [
+        {
+            **m,
+            "variant_id": post_by_id[m["post_id"]]["variant_id"],
+            "platform": post_by_id[m["post_id"]]["platform"],
+            "engagement_score": engagement_score(m),
+        }
+        for m in metrics
+    ]

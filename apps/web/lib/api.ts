@@ -97,6 +97,10 @@ export const api = {
 
   runReportNow: (id: string) => request<any>(`/campaigns/${id}/report/run-now`, { method: "POST" }),
 
+  refreshMetrics: (id: string) => request<any[]>(`/campaigns/${id}/metrics/refresh`, { method: "POST" }),
+
+  getMetricsHistory: (id: string) => request<any[]>(`/campaigns/${id}/metrics/history`),
+
   listSocialAccounts: () => request<any[]>("/social/accounts"),
 
   connectSocial: (platform: "facebook" | "tiktok") =>

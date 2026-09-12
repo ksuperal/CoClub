@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any
 
 from supabase import Client
@@ -50,6 +51,10 @@ def post_campaign(client: Client, *, campaign_id: str, user_id: str) -> list[dic
                             "external_post_id": result.external_post_id,
                             "permalink": result.permalink,
                             "error_message": result.error_message,
+                            # Only set once a post actually landed — used to plot the
+                            # metrics graph against real time and to bucket posts by
+                            # hour for the posting-time recommendation.
+                            "posted_at": datetime.now(timezone.utc).isoformat() if result.status == "posted" else None,
                         }
                     )
                     .execute()

@@ -1,18 +1,55 @@
-"""Step 5: 24hrs after posting, fetch metrics, compute stats in code, and have the
-LLM narrate the pre-computed verdicts (it never invents numbers itself).
+"""Step 5: fetch live metrics, compute stats in code, and (only when explicitly
+asked — the 24hr scheduler or a manual "run report now") have the LLM narrate the
+pre-computed verdicts (it never invents numbers itself).
 
-Invoked by the APScheduler job registered in services/scheduler.py — runs with no
-HTTP request context, so it builds its own service-role client.
+`refresh_metrics` is the cheap, LLM-free half: fetch real numbers from the platform,
+store a new snapshot, return them. Safe to call as often as wanted — it's what backs
+the metrics graph. `run_feedback_job` builds on top of it for the full LLM report,
+invoked by the APScheduler job registered in services/scheduler.py (no HTTP request
+context, so it builds its own service-role client) or via the manual "run now" route.
 """
 
 from typing import Any
 
 from ..db import get_service_client
 from ..services import llm, social, usage
+from ..services.scoring import engagement_score
 
 
-def _engagement_score(m: dict[str, Any]) -> int:
-    return m["likes"] + 2 * m["comments"] + 3 * m["shares"] + m["views"] // 10
+def refresh_metrics(client, campaign_id: str) -> list[dict[str, Any]]:
+    """Fetches fresh metrics for every posted post of this campaign's approved
+    variants, inserts a new `post_metrics` snapshot per post (history accumulates —
+    each call adds a row, nothing is overwritten), and returns what it fetched. No
+    LLM call, no `campaign_reports` row, no `campaigns.status` change — this is the
+    part that's fine to call anytime, repeatedly, independent of the pipeline's
+    overall status.
+    """
+    campaign = client.table("campaigns").select("user_id").eq("id", campaign_id).single().execute().data
+    variants = (
+        client.table("variants").select("id").eq("campaign_id", campaign_id).eq("status", "approved").execute().data
+    )
+
+    fetched: list[dict[str, Any]] = []
+    for variant in variants:
+        posts = client.table("posts").select("*").eq("variant_id", variant["id"]).execute().data
+        for post in posts:
+            if post["status"] != "posted" or not post["external_post_id"]:
+                continue
+            metrics = social.fetch_metrics(
+                client, user_id=campaign["user_id"], platform=post["platform"], external_post_id=post["external_post_id"]
+            )
+            row = client.table("post_metrics").insert({"post_id": post["id"], **metrics}).execute().data[0]
+            fetched.append(
+                {
+                    "post_id": post["id"],
+                    "platform": post["platform"],
+                    "variant_id": variant["id"],
+                    "engagement_score": engagement_score(row),
+                    **row,
+                }
+            )
+
+    return fetched
 
 
 def run_feedback_job(campaign_id: str) -> None:
@@ -20,6 +57,9 @@ def run_feedback_job(campaign_id: str) -> None:
 
     campaign = client.table("campaigns").select("*").eq("id", campaign_id).single().execute().data
     variants = client.table("variants").select("*").eq("campaign_id", campaign_id).eq("status", "approved").execute().data
+
+    fresh_metrics = refresh_metrics(client, campaign_id)
+    metrics_by_post_id = {m["post_id"]: m for m in fresh_metrics}
 
     verdicts: list[dict[str, Any]] = []
 
@@ -30,13 +70,10 @@ def run_feedback_job(campaign_id: str) -> None:
         has_real_data = False
 
         for post in posts:
-            if post["status"] == "posted" and post["external_post_id"]:
+            metrics = metrics_by_post_id.get(post["id"])
+            if post["status"] == "posted" and post["external_post_id"] and metrics:
                 has_real_data = True
-                metrics = social.fetch_metrics(
-                    client, user_id=campaign["user_id"], platform=post["platform"], external_post_id=post["external_post_id"]
-                )
-                client.table("post_metrics").insert({"post_id": post["id"], **metrics}).execute()
-                score = _engagement_score(metrics)
+                score = engagement_score(metrics)
                 variant_score += score
                 platform_breakdown.append({"platform": post["platform"], **metrics, "score": score})
             else:
