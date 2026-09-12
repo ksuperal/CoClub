@@ -105,10 +105,14 @@ export default function VariantsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [step, setStep] = useState<string | null>("Loading…");
   const [error, setError] = useState<string | null>(null);
+  const [warningMessage, setWarningMessage] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
+        const campaign = await api.getCampaign(id);
+        setWarningMessage(campaign.warning_message ?? null);
+
         const v = await api.listVariants(id);
         setVariants(v);
         setSelected(new Set(v.filter((x: Variant) => x.quality_check_status === "passed").map((x: Variant) => x.id)));
@@ -167,6 +171,11 @@ export default function VariantsPage() {
 
       {step && <p className="text-sm text-neutral-500 mb-4">{step}</p>}
       {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
+      {warningMessage && (
+        <p className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 text-sm mb-4">
+          Note: {warningMessage}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-4 mb-8">
         {variants.map((v) => {

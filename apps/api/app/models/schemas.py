@@ -39,7 +39,10 @@ class ProductCreate(BaseModel):
         default=None, description="Optional supplementary text — the upload is the primary source"
     )
     asset_paths: list[str] = Field(
-        ..., min_length=1, description="Required — at least one path uploaded to the product-assets bucket"
+        ...,
+        min_length=1,
+        max_length=10,
+        description="Required — 1 to 10 paths uploaded to the product-assets bucket"
     )
 
 
@@ -72,6 +75,7 @@ class CampaignOut(BaseModel):
     variant_count: int
     status: str
     error_message: str | None
+    warning_message: str | None = None  # defaults to None until the 0005 migration is applied
     created_at: datetime
     updated_at: datetime
 

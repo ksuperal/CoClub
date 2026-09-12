@@ -120,6 +120,11 @@ export default function CampaignStatusPage() {
         Status: <span className="font-medium">{campaign.status}</span>
       </p>
       {campaign.error_message && <p className="text-red-600 text-sm mb-4">{campaign.error_message}</p>}
+      {campaign.warning_message && (
+        <p className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 text-sm mb-4">
+          Note: {campaign.warning_message}
+        </p>
+      )}
       {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
 
       {hasPostedPosts && (

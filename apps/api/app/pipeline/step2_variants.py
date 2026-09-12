@@ -134,11 +134,14 @@ def _load_edit_references(
 
 def _get_reference_images(
     client: Client, campaign: dict[str, Any]
-) -> tuple[list[tuple[bytes, str]], list[str]]:
+) -> tuple[list[tuple[bytes, str]], list[str], str | None]:
     """Gathers real reference images to give the image generator directly — the
     brand's identified logo/mascot page(s)/image(s) and every usable product photo,
     brand-first then product, capped at OpenAI's 16-image total. Returns matching
-    (images, kinds) lists so callers know which image is which."""
+    (images, kinds) lists so callers know which image is which, plus a user-facing
+    warning (or None) if the cap actually truncated something — brand's real
+    reference count isn't known until this point (it depends on what Claude's
+    extraction found), so this can't be validated any earlier than here."""
     images: list[tuple[bytes, str]] = []
     kinds: list[str] = []
 
@@ -168,17 +171,30 @@ def _get_reference_images(
         images.extend(product_refs)
         kinds.extend(["product"] * len(product_refs))
 
+    warning: str | None = None
     if len(images) > MAX_TOTAL_REFERENCES:
+        dropped_kinds = kinds[MAX_TOTAL_REFERENCES:]
+        dropped_product = dropped_kinds.count("product")
+        dropped_brand = dropped_kinds.count("brand")
         logger.warning(
             "Total reference images (%d) exceeds OpenAI's edit limit of %d — using only the first %d.",
             len(images),
             MAX_TOTAL_REFERENCES,
             MAX_TOTAL_REFERENCES,
         )
+        parts = []
+        if dropped_product:
+            parts.append(f"{dropped_product} product photo(s)")
+        if dropped_brand:
+            parts.append(f"{dropped_brand} brand reference(s)")
+        warning = (
+            f"Your brand and product references together ({len(images)}) exceeded the 16-image limit "
+            f"the AI can use at once, so {' and '.join(parts)} weren't included in generation."
+        )
         images = images[:MAX_TOTAL_REFERENCES]
         kinds = kinds[:MAX_TOTAL_REFERENCES]
 
-    return images, kinds
+    return images, kinds, warning
 
 
 def _generate_one_variant(
@@ -272,7 +288,7 @@ def run_variant_generation(client: Client, *, user_id: str, campaign: dict[str, 
         )
         product_profile = product.data["extracted_profile"] or None
 
-    reference_images, reference_kinds = _get_reference_images(client, campaign)
+    reference_images, reference_kinds, reference_warning = _get_reference_images(client, campaign)
     logger.info(
         "Step 2 for campaign %s: product_id=%s, image mode=%s",
         campaign_id,
@@ -280,7 +296,10 @@ def run_variant_generation(client: Client, *, user_id: str, campaign: dict[str, 
         f"images.edit with reference(s) {reference_kinds}" if reference_images else "text-only (images.generate)",
     )
 
-    client.table("campaigns").update({"status": "generating_variants"}).eq("id", campaign_id).execute()
+    update = {"status": "generating_variants"}
+    if reference_warning:
+        update["warning_message"] = reference_warning
+    client.table("campaigns").update(update).eq("id", campaign_id).execute()
 
     try:
         angles, ideation_tokens = llm.ideate_message_angles(

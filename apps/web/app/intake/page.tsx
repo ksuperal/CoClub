@@ -13,17 +13,53 @@ const ACCEPTED_FILE_HINT =
   "only, not usable as a visual reference. You can select multiple files.";
 const ACCEPTED_FILE_TYPES = ".png,.jpg,.jpeg,.webp,.pdf,.gif";
 
-function FileListPreview({ files }: { files: File[] }) {
+function FileListPreview({ files, onRemove }: { files: File[]; onRemove: (index: number) => void }) {
   if (files.length === 0) return null;
   return (
-    <ul className="text-xs text-neutral-500 list-disc list-inside">
+    <ul className="text-xs text-neutral-500">
       {files.map((f, i) => (
-        <li key={i}>
-          {f.name} ({(f.size / 1024).toFixed(0)} KB)
+        <li key={i} className="flex items-center gap-2">
+          <span className="list-disc list-inside">
+            • {f.name} ({(f.size / 1024).toFixed(0)} KB)
+          </span>
+          <button type="button" onClick={() => onRemove(i)} className="text-red-500 hover:underline">
+            Remove
+          </button>
         </li>
       ))}
     </ul>
   );
+}
+
+const MAX_PRODUCT_FILES = 10;
+
+// A file <input>'s .files only ever reflects the most recent picker dialog — browsers
+// never merge it with what was previously selected. So each selection must be appended
+// to state (not replace it), or picking files in two separate dialog opens silently
+// drops whatever was chosen before. Resetting e.target.value afterward lets choosing
+// the exact same file again still fire onChange (otherwise the browser sees no change
+// and stays silent).
+//
+// Takes the current file list explicitly (not a functional setState updater) — this
+// runs from a user-driven event, not a concurrent render, and a functional updater
+// would double-invoke under React StrictMode, which matters here since the
+// max-files truncation logic has a side effect (the returned warning) that must only
+// happen once.
+function appendFiles(
+  e: React.ChangeEvent<HTMLInputElement>,
+  currentFiles: File[],
+  setFiles: (files: File[]) => void,
+  max?: number
+): string | null {
+  const newFiles = Array.from(e.target.files ?? []);
+  e.target.value = "";
+  const combined = [...currentFiles, ...newFiles];
+  if (max && combined.length > max) {
+    setFiles(combined.slice(0, max));
+    return `Only the first ${max} files are kept — up to ${max} product photos are allowed.`;
+  }
+  setFiles(combined);
+  return null;
 }
 
 export default function IntakePage() {
@@ -132,11 +168,11 @@ export default function IntakePage() {
               type="file"
               multiple
               accept={ACCEPTED_FILE_TYPES}
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+              onChange={(e) => appendFiles(e, files, setFiles)}
               className="block mt-1"
             />
             <span className="block text-xs text-neutral-400 mt-1">{ACCEPTED_FILE_HINT}</span>
-            <FileListPreview files={files} />
+            <FileListPreview files={files} onRemove={(i) => setFiles((prev) => prev.filter((_, idx) => idx !== i))} />
           </label>
         </fieldset>
 
@@ -168,11 +204,19 @@ export default function IntakePage() {
                   multiple
                   required={includeProduct && productFiles.length === 0}
                   accept={ACCEPTED_FILE_TYPES}
-                  onChange={(e) => setProductFiles(Array.from(e.target.files ?? []))}
+                  onChange={(e) => {
+                    const warning = appendFiles(e, productFiles, setProductFiles, MAX_PRODUCT_FILES);
+                    setError(warning);
+                  }}
                   className="block mt-1"
                 />
-                <span className="block text-xs text-neutral-400 mt-1">{ACCEPTED_FILE_HINT}</span>
-                <FileListPreview files={productFiles} />
+                <span className="block text-xs text-neutral-400 mt-1">
+                  {ACCEPTED_FILE_HINT} Up to {MAX_PRODUCT_FILES} files.
+                </span>
+                <FileListPreview
+                  files={productFiles}
+                  onRemove={(i) => setProductFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                />
               </label>
               <textarea
                 placeholder="Product description (optional — supplementary to the photo)"
