@@ -30,6 +30,10 @@ type Variant = {
   image_url: string | null;
   quality_check_status: string;
   status: string;
+  media_type: string;
+  video_url: string | null;
+  generation_status: string;
+  video_gen_error: string | null;
 };
 
 type Caption = {
@@ -202,11 +206,34 @@ export default function CampaignStatusPage() {
                       {v.status}
                     </span>
                   </div>
-                  {v.image_url && (
+                  {v.media_type === "video" && v.video_url && (
+                    <video src={v.video_url} controls className="rounded w-full" />
+                  )}
+                  {v.media_type === "video" && !v.video_url && v.generation_status === "generating" && (
+                    <p className="text-xs text-neutral-500 bg-neutral-100 rounded p-3 text-center">
+                      Generating video…
+                    </p>
+                  )}
+                  {v.media_type === "video" && v.generation_status === "failed" && (
+                    <p className="text-xs text-red-600 bg-red-50 rounded p-3">
+                      Video generation failed{v.video_gen_error ? `: ${v.video_gen_error}` : "."}
+                    </p>
+                  )}
+                  {v.media_type !== "video" && v.image_url && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={v.image_url} alt={v.message_angle} className="rounded" />
                   )}
-                  {v.image_url && (
+                  {v.media_type === "video" && v.video_url && (
+                    <button
+                      onClick={() => downloadImage(v.video_url!, variantFilename(v.message_angle, v.id, "mp4"))}
+                      aria-label="Download video"
+                      title="Download video"
+                      className="self-start p-1.5 rounded-full border border-neutral-200 bg-neutral-50 text-neutral-500 hover:bg-black hover:text-white hover:border-black transition-colors"
+                    >
+                      <DownloadIcon className="w-4 h-4" />
+                    </button>
+                  )}
+                  {v.media_type !== "video" && v.image_url && (
                     <button
                       onClick={() => downloadImage(v.image_url!, variantFilename(v.message_angle, v.id))}
                       aria-label="Download image"

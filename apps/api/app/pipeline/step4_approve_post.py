@@ -40,6 +40,8 @@ def post_campaign(client: Client, *, campaign_id: str, user_id: str) -> list[dic
                     caption_text=caption["caption_text"],
                     hashtags=caption["hashtags"],
                     image_url=variant["image_url"],
+                    media_type=variant.get("media_type", "image"),
+                    video_url=variant.get("video_url"),
                 )
                 row = (
                     client.table("posts")

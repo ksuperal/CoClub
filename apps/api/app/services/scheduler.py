@@ -32,6 +32,12 @@ METRICS_POLL_DURATION_HOURS = 72  # most organic engagement lands in the first f
 METRICS_POLL_JITTER_MINUTES = 15  # spread otherwise-simultaneous polls across this window
 MAX_CONCURRENT_JOBS = 5  # bounds outbound API call concurrency regardless of burst size
 
+VIDEO_POLL_INTERVAL_SECONDS = 15  # much tighter than the metrics poll — a variant sits
+# blocked in 'generating' (can't be approved/posted) until this resolves, unlike metrics
+# which are purely informational
+VIDEO_POLL_MAX_MINUTES = 30  # give up and mark the variant 'failed' rather than poll forever
+# if Luma never reaches a terminal status
+
 
 def get_scheduler() -> BackgroundScheduler:
     global _scheduler
@@ -83,5 +89,33 @@ def schedule_metrics_polling(campaign_id: str) -> None:
         end_date=now + timedelta(hours=METRICS_POLL_DURATION_HOURS),
         args=[campaign_id],
         id=f"metrics-poll-{campaign_id}",
+        replace_existing=True,
+    )
+
+
+def schedule_video_generation_poll(variant_id: str) -> None:
+    """Polls one Luma video-generation job until it resolves. Much tighter
+    interval than metrics polling since a variant sits blocked in 'generating'
+    (can't be approved/posted) until this finishes, not just informational.
+
+    Self-canceling: the job function (poll_video_generation_job) removes its own
+    APScheduler job once it sees a terminal status. The `end_date` here is set one
+    interval past the real deadline (passed separately as `deadline_iso`) so a
+    final tick still fires *after* the deadline has passed — otherwise IntervalTrigger
+    would simply stop scheduling at end_date without ever calling the job function to
+    mark it failed, leaving it stuck in 'generating' forever if Luma never
+    resolves."""
+    from ..pipeline.step2_variants import poll_video_generation_job
+
+    now = datetime.now(timezone.utc)
+    deadline = now + timedelta(minutes=VIDEO_POLL_MAX_MINUTES)
+    get_scheduler().add_job(
+        poll_video_generation_job,
+        "interval",
+        seconds=VIDEO_POLL_INTERVAL_SECONDS,
+        start_date=now + timedelta(seconds=VIDEO_POLL_INTERVAL_SECONDS),
+        end_date=deadline + timedelta(seconds=VIDEO_POLL_INTERVAL_SECONDS),
+        args=[variant_id, deadline.isoformat()],
+        id=f"video-poll-{variant_id}",
         replace_existing=True,
     )

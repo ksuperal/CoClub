@@ -388,6 +388,48 @@ def write_image_prompt(
 
 
 # ---------------------------------------------------------------------------
+# Step 2b (video): given the same image prompt, describe how the still should
+# move — a separate small call, not folded into write_image_prompt, since a
+# video variant needs both an image prompt (unchanged) and this in addition,
+# and it's easy to review/edit the two independently before generation.
+# ---------------------------------------------------------------------------
+def ideate_motion_prompt(
+    *,
+    angle: str,
+    image_prompt: str,
+    brand_profile: dict[str, Any],
+    product_profile: dict[str, Any] | None = None,
+    campaign_type: str,
+) -> tuple[str, int]:
+    tool = {
+        "name": "record_motion_prompt",
+        "description": "Record the motion/animation prompt for this video variant.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"motion_prompt": {"type": "string"}},
+            "required": ["motion_prompt"],
+        },
+    }
+    system = (
+        "You write short motion prompts for an image-to-video generator that will animate a still ad "
+        "image. Describe camera movement (e.g. slow push-in, gentle pan, static with subject motion) "
+        "and/or subject motion (e.g. product rotating, liquid pouring, mascot waving) — a few seconds "
+        "of natural, brand-appropriate motion, not a scene change. Stay consistent with the brand's "
+        f"style and a '{campaign_type}' campaign. Do not describe new elements not in the still image — "
+        "the video starts from that exact image, only add motion."
+    )
+    user_content = (
+        f"Brand profile: {brand_profile}\n\nMessage angle: {angle}\n\n"
+        f"Starting image's generation prompt (this is what the still looks like): {image_prompt}"
+    )
+    if product_profile:
+        user_content += f"\n\nProduct profile: {product_profile}"
+    messages = [{"role": "user", "content": user_content}]
+    result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool)
+    return result["motion_prompt"], tokens
+
+
+# ---------------------------------------------------------------------------
 # Step 2c: the one real agent loop — vision-based brand-compliance check
 # ---------------------------------------------------------------------------
 def check_image_quality(

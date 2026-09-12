@@ -11,11 +11,13 @@ from ..models.schemas import (
     CampaignOut,
     CaptionOut,
     CaptionUpdate,
+    GenerateMediaRequest,
     MetricsSnapshotOut,
     PostOut,
     VariantOut,
+    VariantPromptUpdate,
 )
-from ..pipeline.step2_variants import run_variant_generation
+from ..pipeline.step2_variants import generate_variant_media, ideate_variants
 from ..pipeline.step3_copywriting import run_copywriting
 from ..pipeline.step4_approve_post import approve_campaign, post_campaign
 from ..pipeline.step5_feedback import refresh_metrics as _refresh_metrics
@@ -62,6 +64,7 @@ def create_campaign(body: CampaignCreate, user_id: str = Depends(get_current_use
                 "campaign_type": body.campaign_type,
                 "brief": body.brief,
                 "variant_count": body.variant_count,
+                "media_type": body.media_type,
             }
         )
         .execute()
@@ -114,13 +117,56 @@ def get_campaign(campaign_id: str, user_id: str = Depends(get_current_user_id)):
     return _get_owned_campaign(client, campaign_id, user_id)
 
 
-@router.post("/{campaign_id}/generate-variants", response_model=list[VariantOut])
-def generate_variants(campaign_id: str, user_id: str = Depends(get_current_user_id)):
+@router.post("/{campaign_id}/ideate", response_model=list[VariantOut])
+def ideate(campaign_id: str, user_id: str = Depends(get_current_user_id)):
+    """Cheap step: writes an image prompt (and, for video campaigns, a motion prompt
+    too) per message angle — no image-gen/video-gen cost yet. Campaign lands in
+    'awaiting_prompt_review' for the user to edit/skip prompts before triggering the
+    expensive `generate-media` call below."""
     client = get_service_client()
     campaign = _get_owned_campaign(client, campaign_id, user_id)
     if campaign["status"] != "draft":
         raise HTTPException(status_code=409, detail=f"Campaign is '{campaign['status']}', expected 'draft'")
-    return run_variant_generation(client, user_id=user_id, campaign=campaign)
+    return ideate_variants(client, user_id=user_id, campaign=campaign)
+
+
+@router.patch("/{campaign_id}/variants/{variant_id}/prompt", response_model=VariantOut)
+def update_variant_prompt(
+    campaign_id: str, variant_id: str, body: VariantPromptUpdate, user_id: str = Depends(get_current_user_id)
+):
+    client = get_service_client()
+    campaign = _get_owned_campaign(client, campaign_id, user_id)
+    if campaign["status"] != "awaiting_prompt_review":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Campaign is '{campaign['status']}' — prompts can only be edited before generating media",
+        )
+
+    variant = client.table("variants").select("id, campaign_id").eq("id", variant_id).execute().data
+    if not variant or variant[0]["campaign_id"] != campaign_id:
+        raise HTTPException(status_code=404, detail="Variant not found")
+
+    update = {"image_prompt": body.image_prompt}
+    if body.motion_prompt is not None:
+        update["motion_prompt"] = body.motion_prompt
+    updated = client.table("variants").update(update).eq("id", variant_id).execute()
+    return updated.data[0]
+
+
+@router.post("/{campaign_id}/generate-media", response_model=list[VariantOut])
+def generate_media(campaign_id: str, body: GenerateMediaRequest, user_id: str = Depends(get_current_user_id)):
+    """The expensive step: generates real media only for the variants the user kept
+    (possibly with edited prompts) — any other variant from this ideation round is
+    deleted, never generated. Moves the campaign through 'generating_variants' to
+    'awaiting_approval', the same end state `ideate`'s predecessor used to reach
+    directly."""
+    client = get_service_client()
+    campaign = _get_owned_campaign(client, campaign_id, user_id)
+    if campaign["status"] != "awaiting_prompt_review":
+        raise HTTPException(
+            status_code=409, detail=f"Campaign is '{campaign['status']}', expected 'awaiting_prompt_review'"
+        )
+    return generate_variant_media(client, user_id=user_id, campaign=campaign, variant_ids=body.variant_ids)
 
 
 @router.get("/{campaign_id}/variants", response_model=list[VariantOut])

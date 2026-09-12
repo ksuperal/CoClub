@@ -7,6 +7,8 @@ CampaignType = Literal[
     "product_launch", "event_announcement", "promo_offer", "brand_awareness", "other"
 ]
 Platform = Literal["instagram", "tiktok", "facebook"]  # youtube removed for now
+MediaType = Literal["image", "video"]
+GenerationStatus = Literal["awaiting_prompt_review", "generating", "generated", "failed"]
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +66,9 @@ class CampaignCreate(BaseModel):
     campaign_type: CampaignType
     brief: str
     variant_count: int = Field(default=4, ge=1, le=10)
+    media_type: MediaType = Field(
+        default="image", description="What every variant in this campaign should be generated as"
+    )
 
 
 class CampaignOut(BaseModel):
@@ -73,6 +78,7 @@ class CampaignOut(BaseModel):
     campaign_type: str
     brief: str
     variant_count: int
+    media_type: str = "image"  # defaults until the 0006 migration is applied
     status: str
     error_message: str | None
     warning_message: str | None = None  # defaults to None until the 0005 migration is applied
@@ -103,6 +109,20 @@ class VariantOut(BaseModel):
     quality_check_status: str
     quality_check_attempts: int
     status: str
+    media_type: str = "image"  # defaults until the 0006 migration is applied
+    motion_prompt: str | None = None
+    video_url: str | None = None
+    generation_status: str = "generated"
+    video_gen_error: str | None = None
+
+
+class VariantPromptUpdate(BaseModel):
+    image_prompt: str
+    motion_prompt: str | None = None
+
+
+class GenerateMediaRequest(BaseModel):
+    variant_ids: list[str] = Field(..., min_length=1, description="Variants (from this campaign) to generate media for")
 
 
 class CaptionOut(BaseModel):

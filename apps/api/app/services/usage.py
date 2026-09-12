@@ -13,7 +13,7 @@ def log_usage(
     *,
     user_id: str,
     campaign_id: str | None,
-    kind: str,  # "llm_call" | "image_gen"
+    kind: str,  # "llm_call" | "image_gen" | "video_gen"
     units: int,
     cost_estimate: float | None = None,
 ) -> None:

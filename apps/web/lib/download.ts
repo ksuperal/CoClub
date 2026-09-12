@@ -1,9 +1,11 @@
-// Variant images live in Supabase's public "campaign-variants" bucket — a
+// Variant images/videos live in Supabase's public "campaign-variants" bucket — a
 // different origin than the app. The `download` attribute on a plain <a> is only
 // honored for same-origin URLs (or if the server sends Content-Disposition:
-// attachment, which Supabase's public bucket doesn't), so a cross-origin image
+// attachment, which Supabase's public bucket doesn't), so a cross-origin file
 // just opens in a new tab instead of saving. Fetching it as a blob first and
-// downloading *that* (a same-origin blob: URL) is the standard workaround.
+// downloading *that* (a same-origin blob: URL) is the standard workaround. Despite
+// the name (kept for the existing image call sites), this works for any file —
+// video variants pass a .mp4 filename through the same path.
 export async function downloadImage(url: string, filename: string): Promise<void> {
   try {
     const res = await fetch(url);
@@ -25,11 +27,11 @@ export async function downloadImage(url: string, filename: string): Promise<void
 }
 
 // Short, filesystem-safe filename from a variant's message angle.
-export function variantFilename(messageAngle: string, variantId: string): string {
+export function variantFilename(messageAngle: string, variantId: string, extension: string = "png"): string {
   const slug = messageAngle
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
-  return `${slug || "variant"}-${variantId.slice(0, 8)}.png`;
+  return `${slug || "variant"}-${variantId.slice(0, 8)}.${extension}`;
 }

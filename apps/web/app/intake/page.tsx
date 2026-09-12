@@ -76,6 +76,7 @@ export default function IntakePage() {
   const [campaignType, setCampaignType] = useState("product_launch");
   const [brief, setBrief] = useState("");
   const [variantCount, setVariantCount] = useState(4);
+  const [mediaType, setMediaType] = useState<"image" | "video">("image");
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -126,12 +127,13 @@ export default function IntakePage() {
         campaign_type: campaignType,
         brief,
         variant_count: variantCount,
+        media_type: mediaType,
       });
 
-      setStep("Generating ad variants — this calls real image generation, may take a minute…");
-      await api.generateVariants(campaign.id);
+      setStep("Writing prompts for review — no generation cost yet…");
+      await api.ideate(campaign.id);
 
-      router.push(`/campaign/${campaign.id}/variants`);
+      router.push(`/campaign/${campaign.id}/prompts`);
     } catch (err: any) {
       setError(err.message ?? String(err));
       setStep(null);
@@ -260,8 +262,34 @@ export default function IntakePage() {
               onChange={(e) => setVariantCount(Number(e.target.value))}
               className="border rounded px-2 py-1 w-20"
             />
-            <span className="text-neutral-400">(each is a real, billed image-gen call)</span>
           </label>
+          <fieldset className="flex flex-col gap-1">
+            <legend className="text-sm text-neutral-600 mb-1">Generate as</legend>
+            <div className="flex gap-4 text-sm">
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="media_type"
+                  checked={mediaType === "image"}
+                  onChange={() => setMediaType("image")}
+                />
+                Image
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="media_type"
+                  checked={mediaType === "video"}
+                  onChange={() => setMediaType("video")}
+                />
+                Video (animated from a generated starting image)
+              </label>
+            </div>
+          </fieldset>
+          <p className="text-xs text-neutral-400">
+            Next step lets you review — and edit or skip — each variant's prompt before any
+            {mediaType === "video" ? " image or video generation" : " image generation"} cost is spent.
+          </p>
         </fieldset>
 
         {error && <p className="text-red-600 text-sm">{error}</p>}
@@ -272,7 +300,7 @@ export default function IntakePage() {
           disabled={!!step}
           className="bg-black text-white rounded px-3 py-2 disabled:opacity-50"
         >
-          {step ? "Working…" : "Generate variants"}
+          {step ? "Working…" : "Continue to prompt review"}
         </button>
       </form>
     </div>

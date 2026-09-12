@@ -40,6 +40,13 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3000"
 
+    # Video generation (Step 2, video variants) — image-to-video via Luma's Ray
+    # model (Luma Agents API, platform.lumalabs.ai). Optional, same "gated, not
+    # broken, if unconfigured" pattern as the OAuth settings above: without a key,
+    # video generation is unavailable with a clear error rather than a crash.
+    luma_api_key: str | None = None
+    luma_base_url: str = "https://agents.lumalabs.ai/v1"
+
     @property
     def meta_oauth_enabled(self) -> bool:
         return bool(
@@ -49,6 +56,10 @@ class Settings(BaseSettings):
     @property
     def tiktok_oauth_enabled(self) -> bool:
         return bool(self.tiktok_client_key and self.tiktok_client_secret and self.tiktok_redirect_uri)
+
+    @property
+    def luma_enabled(self) -> bool:
+        return bool(self.luma_api_key)
 
 
 @lru_cache

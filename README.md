@@ -7,11 +7,18 @@ campaigns through a 5-step pipeline.
 ## Pipeline
 
 1. **Brand intake** — upload brand guideline + assets, describe the campaign
-2. **Variant generation** — AI generates message angles → image prompts → ad images
-   (with a vision-based brand-compliance quality check loop)
+2. **Variant generation** — split into two calls so nothing expensive runs unreviewed:
+   - **Ideate** — AI generates message angles → image prompts (and, for video
+     campaigns, a motion prompt too). No image-gen/video-gen cost yet.
+   - **Review & generate** — edit or skip any prompt, then generate real media only
+     for what's kept: images via `gpt-image-2` (with a vision-based brand-compliance
+     quality-check loop), or video via that same starting image animated through
+     Luma's Ray image-to-video model
 3. **Copywriting** — captions + hashtags per platform
 4. **Approve & post** — after user approval, posts directly to Facebook/Instagram/TikTok via
-   each platform's native API; accounts that aren't connected yet fall back to `pending_credentials`
+   each platform's native API (video variants post as native video — Instagram Reels,
+   TikTok video, Facebook video); accounts that aren't connected yet fall back to
+   `pending_credentials`
 5. **Feedback** — 24 hours later, a report on what's worth boosting
 
 ## Structure
@@ -69,6 +76,7 @@ Open http://localhost:3000.
 | `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` / `TIKTOK_REDIRECT_URI` | api | no | TikTok Content Posting API app. See "Social posting setup" below |
 | `SOCIAL_TOKEN_ENCRYPTION_KEY` | api | only if connecting accounts | encrypts stored account tokens at rest; generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `FRONTEND_URL` | api | no | where the OAuth callback redirects the browser back to; defaults to `http://localhost:3000` |
+| `LUMA_API_KEY` | api | only for video campaigns | image-to-video generation (Step 2), via Luma's Ray model (Luma Agents API). API key from platform.lumalabs.ai. Without it, video campaigns still ideate/review normally but each variant's generation fails cleanly with `generation_status = 'failed'` instead of crashing |
 
 ## Social posting setup
 
@@ -114,8 +122,16 @@ OAuth flow in `apps/api/app/routers/social.py`, which stores encrypted tokens in
 ## Status model
 
 `campaigns.status` moves through:
-`draft → generating_variants → awaiting_approval → approved → posting → posted → awaiting_feedback → completed`
-(or `failed` from any step).
+`draft → awaiting_prompt_review → generating_variants → awaiting_approval → approved → posting → posted → awaiting_feedback → completed`
+(or `failed` from any step). `awaiting_prompt_review` is the ideate/generate split's
+review checkpoint — variants exist with prompts filled in but no media generated, no
+cost spent yet.
+
+Each `variants` row also tracks its own `generation_status`
+(`awaiting_prompt_review → generating → generated`, or `failed`) independently of the
+campaign's status and of the variant's approve/reject `status` — a video variant in
+particular can still be `generating` in the background (polled separately) after the
+campaign has already moved on to `awaiting_approval`.
 
 ## Notes on scope
 

@@ -68,13 +68,23 @@ export const api = {
     campaign_type: string;
     brief: string;
     variant_count: number;
+    media_type: "image" | "video";
   }) => request<any>("/campaigns", { method: "POST", body: JSON.stringify(body) }),
 
   listCampaigns: () => request<any[]>("/campaigns"),
 
   getCampaign: (id: string) => request<any>(`/campaigns/${id}`),
 
-  generateVariants: (id: string) => request<any[]>(`/campaigns/${id}/generate-variants`, { method: "POST" }),
+  ideate: (id: string) => request<any[]>(`/campaigns/${id}/ideate`, { method: "POST" }),
+
+  updateVariantPrompt: (campaignId: string, variantId: string, body: { image_prompt: string; motion_prompt?: string }) =>
+    request<any>(`/campaigns/${campaignId}/variants/${variantId}/prompt`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  generateMedia: (id: string, variant_ids: string[]) =>
+    request<any[]>(`/campaigns/${id}/generate-media`, { method: "POST", body: JSON.stringify({ variant_ids }) }),
 
   listVariants: (id: string) => request<any[]>(`/campaigns/${id}/variants`),
 

@@ -29,7 +29,12 @@ def refresh_metrics(client, campaign_id: str) -> list[dict[str, Any]]:
     """
     campaign = client.table("campaigns").select("user_id").eq("id", campaign_id).single().execute().data
     variants = (
-        client.table("variants").select("id").eq("campaign_id", campaign_id).eq("status", "approved").execute().data
+        client.table("variants")
+        .select("id, media_type")
+        .eq("campaign_id", campaign_id)
+        .eq("status", "approved")
+        .execute()
+        .data
     )
 
     fetched: list[dict[str, Any]] = []
@@ -39,7 +44,11 @@ def refresh_metrics(client, campaign_id: str) -> list[dict[str, Any]]:
             if post["status"] != "posted" or not post["external_post_id"]:
                 continue
             metrics = social.fetch_metrics(
-                client, user_id=campaign["user_id"], platform=post["platform"], external_post_id=post["external_post_id"]
+                client,
+                user_id=campaign["user_id"],
+                platform=post["platform"],
+                external_post_id=post["external_post_id"],
+                media_type=variant.get("media_type", "image"),
             )
             if metrics is None:
                 # The call itself failed (rate limit, network, transient API error) —

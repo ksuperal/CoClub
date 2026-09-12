@@ -1,10 +1,14 @@
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from supabase import Client
 
-from ..services import image_gen, llm, usage
+from ..config import get_settings
+from ..services import image_gen, llm, luma, usage
 from ..services.files import download_asset, rasterize_pdf_pages
+from ..services.scheduler import schedule_video_generation_poll
 from .product_intake import PRODUCT_ASSETS_BUCKET
 from .step1_intake import BRAND_ASSETS_BUCKET
 
@@ -24,8 +28,105 @@ MAX_TOTAL_REFERENCES = 16
 MAX_PDF_PAGES_PER_SOURCE = 3
 
 
-def _upload_image(client: Client, *, user_id: str, campaign_id: str, variant_index: int, image_bytes: bytes) -> str:
-    path = f"{user_id}/{campaign_id}/{variant_index}.png"
+def _store_generated_video(client: Client, *, user_id: str, campaign_id: str, variant_id: str, video_url: str) -> str:
+    """Downloads the finished video from Luma's storage and re-uploads it to our own
+    storage bucket — keeps every generated asset under our own control/retention
+    instead of depending on Luma's presigned URL, which expires after 1 hour."""
+    resp = httpx.get(video_url, timeout=120)
+    resp.raise_for_status()
+    path = f"{user_id}/{campaign_id}/{variant_id}.mp4"
+    client.storage.from_(VARIANTS_BUCKET).upload(
+        path, resp.content, {"content-type": "video/mp4", "upsert": "true"}
+    )
+    return client.storage.from_(VARIANTS_BUCKET).get_public_url(path)
+
+
+def poll_video_generation_job(variant_id: str, deadline_iso: str) -> None:
+    """Entry point for the recurring background poll (services/scheduler.py,
+    schedule_video_generation_poll). Builds its own client — same no-HTTP-context
+    situation as the feedback/metrics scheduled jobs. Self-cancels by removing its
+    own APScheduler job once the Luma request reaches a terminal status, or
+    once past `deadline_iso` with no resolution (marked failed rather than left
+    stuck in 'generating' forever)."""
+    from ..db import get_service_client
+    from ..services.scheduler import get_scheduler
+
+    job_id = f"video-poll-{variant_id}"
+
+    def _remove_job() -> None:
+        try:
+            get_scheduler().remove_job(job_id)
+        except Exception:  # noqa: BLE001 - already removed / never existed, nothing to do
+            pass
+
+    try:
+        client = get_service_client()
+        rows = client.table("variants").select("*").eq("id", variant_id).execute().data
+        if not rows:
+            _remove_job()
+            return
+        variant = rows[0]
+
+        if variant.get("generation_status") != "generating" or not variant.get("video_gen_job_id"):
+            # Already resolved by a previous tick (or never actually started) — nothing to do.
+            _remove_job()
+            return
+
+        status_data = luma.check_job_status(variant["video_gen_job_id"])
+        state = status_data.get("state")
+
+        if state == "completed":
+            output = status_data.get("output") or []
+            video_url = output[0]["url"] if output and output[0].get("url") else None
+            if not video_url:
+                client.table("variants").update(
+                    {"generation_status": "failed", "video_gen_error": "Luma reported completed with no video URL"}
+                ).eq("id", variant_id).execute()
+            else:
+                campaign = (
+                    client.table("campaigns").select("user_id").eq("id", variant["campaign_id"]).single().execute().data
+                )
+                # Luma's output URL is presigned and expires after 1 hour — this download
+                # must happen promptly on the first tick that sees 'completed', not deferred.
+                stored_url = _store_generated_video(
+                    client,
+                    user_id=campaign["user_id"],
+                    campaign_id=variant["campaign_id"],
+                    variant_id=variant_id,
+                    video_url=video_url,
+                )
+                client.table("variants").update(
+                    {"video_url": stored_url, "generation_status": "generated"}
+                ).eq("id", variant_id).execute()
+            _remove_job()
+            return
+
+        if state == "failed":
+            error = status_data.get("failure_reason") or f"Video generation failed ({status_data.get('failure_code')})"
+            client.table("variants").update(
+                {"generation_status": "failed", "video_gen_error": error}
+            ).eq("id", variant_id).execute()
+            _remove_job()
+            return
+
+        # Still queued/processing. Only the timeout backstop can end this tick's work.
+        if datetime.fromisoformat(deadline_iso) <= datetime.now(timezone.utc):
+            client.table("variants").update(
+                {"generation_status": "failed", "video_gen_error": "Video generation timed out"}
+            ).eq("id", variant_id).execute()
+            _remove_job()
+    except Exception:  # noqa: BLE001
+        # A transient failure (network blip, DB hiccup) shouldn't kill the polling job —
+        # leave it running so the next tick just tries again; the deadline check above
+        # is what eventually stops it for real if Luma never resolves.
+        logger.exception("Video generation poll failed for variant %s", variant_id)
+
+
+def _upload_image(client: Client, *, user_id: str, campaign_id: str, variant_id: str, image_bytes: bytes) -> str:
+    # Keyed by variant_id (not a positional index) — generation now happens per-variant,
+    # possibly for an arbitrary subset chosen after review, so there's no stable index
+    # to rely on any more.
+    path = f"{user_id}/{campaign_id}/{variant_id}.png"
     client.storage.from_(VARIANTS_BUCKET).upload(
         path, image_bytes, {"content-type": "image/png", "upsert": "true"}
     )
@@ -141,7 +242,12 @@ def _get_reference_images(
     (images, kinds) lists so callers know which image is which, plus a user-facing
     warning (or None) if the cap actually truncated something — brand's real
     reference count isn't known until this point (it depends on what Claude's
-    extraction found), so this can't be validated any earlier than here."""
+    extraction found), so this can't be validated any earlier than here.
+
+    Called once during ideation (to inform prompt-writing and surface the warning)
+    and again during generation (to actually feed the image editor) — a repeated
+    storage read, not a repeated paid call, so recomputing rather than caching is
+    the simpler choice here."""
     images: list[tuple[bytes, str]] = []
     kinds: list[str] = []
 
@@ -197,43 +303,176 @@ def _get_reference_images(
     return images, kinds, warning
 
 
-def _generate_one_variant(
+def _load_profiles(client: Client, campaign: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    brand = client.table("brands").select("extracted_profile").eq("id", campaign["brand_id"]).single().execute()
+    brand_profile = brand.data["extracted_profile"] or {}
+
+    product_profile: dict[str, Any] | None = None
+    if campaign.get("product_id"):
+        product = (
+            client.table("products").select("extracted_profile").eq("id", campaign["product_id"]).single().execute()
+        )
+        product_profile = product.data["extracted_profile"] or None
+
+    return brand_profile, product_profile
+
+
+# ---------------------------------------------------------------------------
+# Ideation — cheap, LLM-only. Produces a `variants` row per message angle with
+# prompt(s) filled in but no media generated yet, so the user can review/edit
+# before any image-gen/video-gen cost is spent. Campaign lands in
+# 'awaiting_prompt_review', not 'awaiting_approval' — that status is reserved
+# for "media exists, review it for posting."
+# ---------------------------------------------------------------------------
+def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -> list[dict[str, Any]]:
+    campaign_id = campaign["id"]
+    media_type = campaign.get("media_type", "image")
+    brand_profile, product_profile = _load_profiles(client, campaign)
+    reference_images, reference_kinds, reference_warning = _get_reference_images(client, campaign)
+    logger.info(
+        "Step 2 ideation for campaign %s: product_id=%s, media_type=%s, image mode=%s",
+        campaign_id,
+        campaign.get("product_id"),
+        media_type,
+        f"images.edit with reference(s) {reference_kinds}" if reference_images else "text-only (images.generate)",
+    )
+
+    update: dict[str, Any] = {"status": "awaiting_prompt_review"}
+    if reference_warning:
+        update["warning_message"] = reference_warning
+    client.table("campaigns").update(update).eq("id", campaign_id).execute()
+
+    try:
+        angles, ideation_tokens = llm.ideate_message_angles(
+            brand_profile=brand_profile,
+            product_profile=product_profile,
+            campaign_type=campaign["campaign_type"],
+            brief=campaign["brief"],
+            n=campaign["variant_count"],
+        )
+        usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=ideation_tokens)
+
+        variants = []
+        for angle in angles:
+            image_prompt, prompt_tokens = llm.write_image_prompt(
+                angle=angle,
+                brand_profile=brand_profile,
+                product_profile=product_profile,
+                reference_kinds=reference_kinds,
+                campaign_type=campaign["campaign_type"],
+            )
+            usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=prompt_tokens)
+
+            motion_prompt: str | None = None
+            if media_type == "video":
+                motion_prompt, motion_tokens = llm.ideate_motion_prompt(
+                    angle=angle,
+                    image_prompt=image_prompt,
+                    brand_profile=brand_profile,
+                    product_profile=product_profile,
+                    campaign_type=campaign["campaign_type"],
+                )
+                usage.log_usage(
+                    client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=motion_tokens
+                )
+
+            row = (
+                client.table("variants")
+                .insert(
+                    {
+                        "campaign_id": campaign_id,
+                        "message_angle": angle,
+                        "image_prompt": image_prompt,
+                        "motion_prompt": motion_prompt,
+                        "media_type": media_type,
+                        "generation_status": "awaiting_prompt_review",
+                    }
+                )
+                .execute()
+            )
+            variants.append(row.data[0])
+
+        return variants
+    except Exception as exc:  # noqa: BLE001
+        client.table("campaigns").update(
+            {"status": "failed", "error_message": f"Step 2 (ideation) failed: {exc}"}
+        ).eq("id", campaign_id).execute()
+        raise
+
+
+def _start_video_generation(
+    client: Client, *, user_id: str, campaign_id: str, variant_id: str, image_bytes: bytes, motion_prompt: str
+) -> None:
+    """Submits the starting image + motion prompt to Luma and registers a polling
+    job to pick up completion — never raises: a submission failure (missing key, or
+    the API call itself failing) is recorded on the variant as
+    generation_status='failed' with video_gen_error, same "gated, not broken" pattern
+    used for unconfigured social OAuth."""
+    settings = get_settings()
+    if not settings.luma_enabled:
+        client.table("variants").update(
+            {
+                "generation_status": "failed",
+                "video_gen_error": "Video generation is not configured (missing Luma API key).",
+            }
+        ).eq("id", variant_id).execute()
+        return
+
+    try:
+        job_id = luma.submit_image_to_video(image_bytes, motion_prompt)
+        usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="video_gen", units=1)
+        client.table("variants").update({"video_gen_job_id": job_id}).eq("id", variant_id).execute()
+        schedule_video_generation_poll(variant_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to submit video generation job for variant %s", variant_id)
+        client.table("variants").update(
+            {"generation_status": "failed", "video_gen_error": str(exc)}
+        ).eq("id", variant_id).execute()
+
+
+def _generate_media_for_variant(
     client: Client,
     *,
     user_id: str,
     campaign_id: str,
-    variant_index: int,
-    angle: str,
+    variant: dict[str, Any],
     brand_profile: dict[str, Any],
     product_profile: dict[str, Any] | None,
     reference_images: list[tuple[bytes, str]],
     reference_kinds: list[str],
     campaign_type: str,
 ) -> dict[str, Any]:
+    """The expensive step for one variant, run only once the user has confirmed
+    (possibly edited) its prompt. Reuses the same quality-check retry loop as
+    before, but attempt 1 uses the given prompt as-is — no LLM call — and only
+    retries 2+ fall back to normal LLM re-prompting via retry_notes, same as
+    today. For a video variant, the starting image still goes through the full
+    quality-check loop unchanged; only once it passes does this hand off to
+    Luma for animation."""
+    variant_id = variant["id"]
+    media_type = variant.get("media_type", "image")
+    angle = variant["message_angle"]
+
     retry_notes: str | None = None
     attempts = 0
     passed = False
     notes = ""
-    image_prompt = ""
+    image_prompt = variant["image_prompt"]
     image_bytes = b""
 
     while attempts <= MAX_QUALITY_RETRIES:
-        image_prompt, prompt_tokens = llm.write_image_prompt(
-            angle=angle,
-            brand_profile=brand_profile,
-            product_profile=product_profile,
-            reference_kinds=reference_kinds,
-            campaign_type=campaign_type,
-            retry_notes=retry_notes,
-        )
-        usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=prompt_tokens)
+        if attempts > 0:
+            image_prompt, prompt_tokens = llm.write_image_prompt(
+                angle=angle,
+                brand_profile=brand_profile,
+                product_profile=product_profile,
+                reference_kinds=reference_kinds,
+                campaign_type=campaign_type,
+                retry_notes=retry_notes,
+            )
+            usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=prompt_tokens)
 
         if reference_images:
-            logger.info(
-                "Variant %d: generating via images.edit with reference(s): %s",
-                variant_index,
-                reference_kinds,
-            )
             image_bytes = image_gen.edit_image_with_references(image_prompt, reference_images)
         else:
             image_bytes = image_gen.generate_image(image_prompt)
@@ -255,82 +494,77 @@ def _generate_one_variant(
         retry_notes = notes
 
     image_url = _upload_image(
-        client, user_id=user_id, campaign_id=campaign_id, variant_index=variant_index, image_bytes=image_bytes
+        client, user_id=user_id, campaign_id=campaign_id, variant_id=variant_id, image_bytes=image_bytes
     )
 
-    row = (
-        client.table("variants")
-        .insert(
-            {
-                "campaign_id": campaign_id,
-                "message_angle": angle,
-                "image_prompt": image_prompt,
-                "image_url": image_url,
-                "quality_check_status": "passed" if passed else "failed_max_retries",
-                "quality_check_attempts": attempts,
-                "quality_check_notes": notes,
-            }
+    update: dict[str, Any] = {
+        "image_prompt": image_prompt,
+        "image_url": image_url,
+        "quality_check_status": "passed" if passed else "failed_max_retries",
+        "quality_check_attempts": attempts,
+        "quality_check_notes": notes,
+    }
+
+    if media_type == "video":
+        update["generation_status"] = "generating"
+        client.table("variants").update(update).eq("id", variant_id).execute()
+        _start_video_generation(
+            client,
+            user_id=user_id,
+            campaign_id=campaign_id,
+            variant_id=variant_id,
+            image_bytes=image_bytes,
+            motion_prompt=variant.get("motion_prompt") or "",
         )
-        .execute()
-    )
+        return client.table("variants").select("*").eq("id", variant_id).single().execute().data
+
+    update["generation_status"] = "generated"
+    row = client.table("variants").update(update).eq("id", variant_id).execute()
     return row.data[0]
 
 
-def run_variant_generation(client: Client, *, user_id: str, campaign: dict[str, Any]) -> list[dict[str, Any]]:
+# ---------------------------------------------------------------------------
+# Generation — the expensive step, run only for the variants the user selected
+# to keep after reviewing their (possibly edited) prompts. Deselected variants
+# are deleted here, never generated — the actual cost-saving point of this
+# whole ideate/generate split.
+# ---------------------------------------------------------------------------
+def generate_variant_media(client: Client, *, user_id: str, campaign: dict[str, Any], variant_ids: list[str]) -> list[dict[str, Any]]:
     campaign_id = campaign["id"]
-    brand = client.table("brands").select("extracted_profile").eq("id", campaign["brand_id"]).single().execute()
-    brand_profile = brand.data["extracted_profile"] or {}
+    brand_profile, product_profile = _load_profiles(client, campaign)
+    reference_images, reference_kinds, _ = _get_reference_images(client, campaign)
 
-    product_profile: dict[str, Any] | None = None
-    if campaign.get("product_id"):
-        product = (
-            client.table("products").select("extracted_profile").eq("id", campaign["product_id"]).single().execute()
-        )
-        product_profile = product.data["extracted_profile"] or None
+    all_variants = client.table("variants").select("id").eq("campaign_id", campaign_id).execute().data
+    deselected_ids = [v["id"] for v in all_variants if v["id"] not in variant_ids]
+    if deselected_ids:
+        client.table("variants").delete().in_("id", deselected_ids).execute()
 
-    reference_images, reference_kinds, reference_warning = _get_reference_images(client, campaign)
-    logger.info(
-        "Step 2 for campaign %s: product_id=%s, image mode=%s",
-        campaign_id,
-        campaign.get("product_id"),
-        f"images.edit with reference(s) {reference_kinds}" if reference_images else "text-only (images.generate)",
-    )
+    variants = client.table("variants").select("*").eq("campaign_id", campaign_id).in_("id", variant_ids).execute().data
+    if not variants:
+        raise ValueError("No matching variants selected to generate")
 
-    update = {"status": "generating_variants"}
-    if reference_warning:
-        update["warning_message"] = reference_warning
-    client.table("campaigns").update(update).eq("id", campaign_id).execute()
+    client.table("campaigns").update({"status": "generating_variants"}).eq("id", campaign_id).execute()
 
     try:
-        angles, ideation_tokens = llm.ideate_message_angles(
-            brand_profile=brand_profile,
-            product_profile=product_profile,
-            campaign_type=campaign["campaign_type"],
-            brief=campaign["brief"],
-            n=campaign["variant_count"],
-        )
-        usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=ideation_tokens)
-
-        variants = [
-            _generate_one_variant(
+        results = [
+            _generate_media_for_variant(
                 client,
                 user_id=user_id,
                 campaign_id=campaign_id,
-                variant_index=i,
-                angle=angle,
+                variant=variant,
                 brand_profile=brand_profile,
                 product_profile=product_profile,
                 reference_images=reference_images,
                 reference_kinds=reference_kinds,
                 campaign_type=campaign["campaign_type"],
             )
-            for i, angle in enumerate(angles)
+            for variant in variants
         ]
 
         client.table("campaigns").update({"status": "awaiting_approval"}).eq("id", campaign_id).execute()
-        return variants
+        return results
     except Exception as exc:  # noqa: BLE001
         client.table("campaigns").update(
-            {"status": "failed", "error_message": f"Step 2 (variant generation) failed: {exc}"}
+            {"status": "failed", "error_message": f"Step 2 (media generation) failed: {exc}"}
         ).eq("id", campaign_id).execute()
         raise
