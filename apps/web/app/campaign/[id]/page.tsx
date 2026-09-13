@@ -35,6 +35,7 @@ type Variant = {
   generation_status: string;
   video_gen_error: string | null;
   audio_gen_error: string | null;
+  target_platforms: string[];
 };
 
 type Caption = {
@@ -193,8 +194,15 @@ export default function CampaignStatusPage() {
               const variantCaptions = captions.filter((c) => c.variant_id === v.id);
               return (
                 <div key={v.id} className="border rounded p-3 flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">{v.message_angle}</p>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="text-sm font-medium">
+                      {v.message_angle}
+                      {v.target_platforms.length > 0 && (
+                        <span className="ml-2 text-xs font-normal text-blue-600 border border-blue-200 bg-blue-50 rounded px-1.5 py-0.5">
+                          {v.target_platforms.join(", ")}
+                        </span>
+                      )}
+                    </p>
                     <span
                       className={`text-xs rounded-full px-2 py-0.5 flex-shrink-0 ${
                         v.status === "approved"

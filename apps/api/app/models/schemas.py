@@ -66,16 +66,10 @@ class CampaignCreate(BaseModel):
     product_id: str | None = Field(default=None, description="Optional — ties this campaign to a specific product")
     campaign_type: CampaignType
     brief: str
-    variant_count: int = Field(default=4, ge=1, le=10)
-    media_type: MediaType = Field(
-        default="image", description="What every variant in this campaign should be generated as"
-    )
-    include_voiceover: bool = Field(
-        default=False, description="Generate a spoken voiceover for each video variant (media_type='video' only)"
-    )
-    include_music: bool = Field(
-        default=False, description="Generate a background music bed for each video variant (media_type='video' only)"
-    )
+    # No variant_count/media_type/audio toggles here anymore — the campaign-scoping
+    # conversation (POST /campaigns/{id}/scope/messages, right after creation) decides
+    # those, letting the user describe size in their own words ("IG 9 posts, TikTok 2
+    # short videos") instead of picking mechanical settings before seeing anything.
 
 
 class CampaignOut(BaseModel):
@@ -84,10 +78,12 @@ class CampaignOut(BaseModel):
     product_id: str | None
     campaign_type: str
     brief: str
-    variant_count: int
-    media_type: str = "image"  # defaults until the 0006 migration is applied
-    include_voiceover: bool = False  # defaults until the 0008 migration is applied
-    include_music: bool = False  # defaults until the 0008 migration is applied
+    variant_count: int  # legacy fallback default — see step2_variants._expand_content_plan
+    media_type: str = "image"  # legacy fallback default — content_plan is authoritative once scoping finishes
+    include_voiceover: bool = False
+    include_music: bool = False
+    scope_conversation: list[dict[str, Any]] = Field(default_factory=list)
+    content_plan: list[dict[str, Any]] | None = None
     status: str
     error_message: str | None
     warning_message: str | None = None  # defaults to None until the 0005 migration is applied
@@ -127,6 +123,7 @@ class VariantOut(BaseModel):
     voice_instructions: str | None = None
     music_prompt: str | None = None
     audio_gen_error: str | None = None
+    target_platforms: list[str] = Field(default_factory=list)  # empty = no restriction, post everywhere connected
 
 
 class VariantPromptUpdate(BaseModel):

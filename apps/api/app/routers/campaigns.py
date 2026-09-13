@@ -21,6 +21,7 @@ from ..pipeline.step2_variants import generate_variant_media, ideate_variants
 from ..pipeline.step3_copywriting import run_copywriting
 from ..pipeline.step4_approve_post import approve_campaign, post_campaign
 from ..pipeline.step5_feedback import refresh_metrics as _refresh_metrics
+from ..services import llm, usage
 from ..services.scoring import engagement_score
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
@@ -63,10 +64,9 @@ def create_campaign(body: CampaignCreate, user_id: str = Depends(get_current_use
                 "user_id": user_id,
                 "campaign_type": body.campaign_type,
                 "brief": body.brief,
-                "variant_count": body.variant_count,
-                "media_type": body.media_type,
-                "include_voiceover": body.include_voiceover,
-                "include_music": body.include_music,
+                # variant_count/media_type/audio toggles are left at their DB
+                # defaults — the scoping conversation (POST .../scope/messages,
+                # right after this) decides the real content_plan instead.
             }
         )
         .execute()
@@ -119,16 +119,84 @@ def get_campaign(campaign_id: str, user_id: str = Depends(get_current_user_id)):
     return _get_owned_campaign(client, campaign_id, user_id)
 
 
-@router.post("/{campaign_id}/ideate", response_model=list[VariantOut])
-def ideate(campaign_id: str, user_id: str = Depends(get_current_user_id)):
-    """Cheap step: writes an image prompt (and, for video campaigns, a motion prompt
-    too) per message angle — no image-gen/video-gen cost yet. Campaign lands in
-    'awaiting_prompt_review' for the user to edit/skip prompts before triggering the
-    expensive `generate-media` call below."""
+@router.post("/{campaign_id}/scope/messages")
+def scope_message(campaign_id: str, body: dict[str, str], user_id: str = Depends(get_current_user_id)):
+    """One turn of the campaign-scoping conversation — body {"text": "..."}. Before
+    any ideation happens, the user describes the campaign's SIZE in their own words
+    ("IG 9 posts, TikTok 2 short videos") instead of picking variant_count/media_type
+    from a form; Claude either asks a follow-up or finalizes a concrete content plan.
+    Campaign must be 'draft' (first call) or already 'awaiting_scope' (continuing).
+
+    Returns {"kind": "question", "text": ...} — show it and wait for another reply —
+    or {"kind": "plan", "items": [...], "summary": ...} — show `summary` and call
+    /scope/confirm once the user is happy with it (or keep messaging to adjust it;
+    each finalized plan overwrites the previous one, nothing commits until confirm)."""
     client = get_service_client()
     campaign = _get_owned_campaign(client, campaign_id, user_id)
-    if campaign["status"] != "draft":
-        raise HTTPException(status_code=409, detail=f"Campaign is '{campaign['status']}', expected 'draft'")
+    if campaign["status"] not in ("draft", "awaiting_scope"):
+        raise HTTPException(
+            status_code=409, detail=f"Campaign is '{campaign['status']}', expected 'draft' or 'awaiting_scope'"
+        )
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="text is required")
+
+    brand = client.table("brands").select("extracted_profile").eq("id", campaign["brand_id"]).single().execute()
+    brand_profile = brand.data["extracted_profile"] or {}
+    product_profile = None
+    if campaign.get("product_id"):
+        product = (
+            client.table("products").select("extracted_profile").eq("id", campaign["product_id"]).single().execute()
+        )
+        product_profile = product.data["extracted_profile"] or None
+
+    connected_platforms = [
+        row["platform"]
+        for row in client.table("social_accounts")
+        .select("platform")
+        .eq("user_id", user_id)
+        .eq("status", "connected")
+        .execute()
+        .data
+    ]
+
+    conversation = list(campaign.get("scope_conversation") or [])
+    conversation.append({"role": "user", "text": text})
+
+    result, tokens = llm.continue_campaign_scoping(
+        brand_profile=brand_profile,
+        product_profile=product_profile,
+        campaign_type=campaign["campaign_type"],
+        brief=campaign["brief"],
+        connected_platforms=connected_platforms,
+        conversation=conversation,
+    )
+    usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=tokens)
+
+    update: dict[str, Any] = {"status": "awaiting_scope"}
+    if result["kind"] == "plan":
+        conversation.append({"role": "assistant", "text": result["summary"]})
+        update["content_plan"] = result["items"]
+    else:
+        conversation.append({"role": "assistant", "text": result["text"]})
+    update["scope_conversation"] = conversation
+    client.table("campaigns").update(update).eq("id", campaign_id).execute()
+
+    return result
+
+
+@router.post("/{campaign_id}/scope/confirm", response_model=list[VariantOut])
+def scope_confirm(campaign_id: str, user_id: str = Depends(get_current_user_id)):
+    """Locks in the most recently finalized plan (from /scope/messages) and moves
+    to ideation — writes prompts for each planned piece, no image-gen/video-gen/
+    audio-gen cost yet. Campaign lands in 'awaiting_prompt_review' for the user to
+    edit/skip prompts before triggering the expensive `generate-media` call."""
+    client = get_service_client()
+    campaign = _get_owned_campaign(client, campaign_id, user_id)
+    if campaign["status"] != "awaiting_scope":
+        raise HTTPException(status_code=409, detail=f"Campaign is '{campaign['status']}', expected 'awaiting_scope'")
+    if not campaign.get("content_plan"):
+        raise HTTPException(status_code=409, detail="No finalized plan yet — keep messaging /scope/messages first")
     return ideate_variants(client, user_id=user_id, campaign=campaign)
 
 
