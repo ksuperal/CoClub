@@ -4,7 +4,8 @@ from typing import Any
 
 from supabase import Client
 
-from ..services import llm, usage
+from ..config import get_settings
+from ..services import elevenlabs_tts, llm, usage
 from ..services.files import download_assets_with_paths
 
 logger = logging.getLogger(__name__)
@@ -42,15 +43,18 @@ def run_intake(
     logger.info("Step 1 extracted brand profile for '%s':\n%s", name, json.dumps(profile, indent=2))
 
     # Pick a TTS voice for this brand's future video ads — cheap (one small forced
-    # tool call), and reused across every campaign this brand ever runs rather than
-    # re-decided per ad. Non-fatal if it fails: openai_tts.generate_voiceover falls
-    # back to a sensible default voice when brands.voice_id is null.
+    # tool call against a live-fetched real voice list), and reused across every
+    # campaign this brand ever runs rather than re-decided per ad. Non-fatal if
+    # either step fails: elevenlabs_tts.generate_voiceover falls back to a
+    # sensible default voice when brands.voice_id is null/unset.
     voice_id = None
-    try:
-        voice_id, voice_tokens = llm.choose_brand_voice(profile)
-        usage.log_usage(client, user_id=user_id, campaign_id=None, kind="llm_call", units=voice_tokens)
-    except Exception:  # noqa: BLE001
-        logger.exception("Voice selection failed for brand '%s' — will fall back to a default voice.", name)
+    if get_settings().elevenlabs_enabled:
+        try:
+            available_voices = elevenlabs_tts.list_premade_voices()
+            voice_id, voice_tokens = llm.choose_brand_voice(profile, available_voices)
+            usage.log_usage(client, user_id=user_id, campaign_id=None, kind="llm_call", units=voice_tokens)
+        except Exception:  # noqa: BLE001
+            logger.exception("Voice selection failed for brand '%s' — will fall back to a default voice.", name)
 
     row = (
         client.table("brands")

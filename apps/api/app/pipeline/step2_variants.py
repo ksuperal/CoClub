@@ -6,7 +6,7 @@ import httpx
 from supabase import Client
 
 from ..config import get_settings
-from ..services import audio_mix, elevenlabs_music, image_gen, llm, luma, openai_tts, usage
+from ..services import audio_mix, elevenlabs_music, elevenlabs_tts, image_gen, llm, luma, usage
 from ..services.files import download_asset, rasterize_pdf_pages
 from ..services.scheduler import schedule_video_generation_poll
 from .product_intake import PRODUCT_ASSETS_BUCKET
@@ -69,15 +69,18 @@ def _generate_and_mux_audio(
 
     voiceover_bytes: bytes | None = None
     if campaign.get("include_voiceover") and variant.get("voiceover_script"):
-        try:
-            brand = client.table("brands").select("voice_id").eq("id", campaign["brand_id"]).single().execute().data
-            voice_id = (brand or {}).get("voice_id")
-            voiceover_bytes = openai_tts.generate_voiceover(
-                variant["voiceover_script"], voice=voice_id, instructions=variant.get("voice_instructions")
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Voiceover generation failed for variant %s.", variant["id"])
-            errors.append(f"voiceover failed: {exc}")
+        if not settings.elevenlabs_enabled:
+            errors.append("voiceover requested but ELEVENLABS_API_KEY is not configured")
+        else:
+            try:
+                brand = (
+                    client.table("brands").select("voice_id").eq("id", campaign["brand_id"]).single().execute().data
+                )
+                voice_id = (brand or {}).get("voice_id")
+                voiceover_bytes = elevenlabs_tts.generate_voiceover(variant["voiceover_script"], voice_id=voice_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Voiceover generation failed for variant %s.", variant["id"])
+                errors.append(f"voiceover failed: {exc}")
 
     music_bytes: bytes | None = None
     if campaign.get("include_music") and variant.get("music_prompt"):

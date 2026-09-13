@@ -430,35 +430,40 @@ def ideate_motion_prompt(
 
 
 # ---------------------------------------------------------------------------
-# Brand intake: pick one of OpenAI's 13 gpt-4o-mini-tts voices to represent this
-# brand consistently across every video variant it ever generates — a real
-# brand voice, not a random pick per ad. Called once, at brand creation.
+# Brand intake: pick one of ElevenLabs' real, currently-available premade
+# voices to represent this brand consistently across every video variant it
+# ever generates — a real brand voice, not a random pick per ad. Called once,
+# at brand creation, against a live-fetched voice list (services/elevenlabs_tts
+# .list_premade_voices) rather than a hardcoded one, since ElevenLabs' library
+# changes over time and a stale hardcoded voice_id would just fail at generation.
 # ---------------------------------------------------------------------------
-def choose_brand_voice(brand_profile: dict[str, Any]) -> tuple[str, int]:
-    from .openai_tts import VALID_VOICES  # local import avoids a cycle (openai_tts doesn't import llm, but keeps the voice list single-sourced)
-
+def choose_brand_voice(brand_profile: dict[str, Any], available_voices: list[dict[str, str]]) -> tuple[str, int]:
+    voice_ids = [v["voice_id"] for v in available_voices]
     tool = {
         "name": "record_voice_choice",
         "description": "Record which voice best represents this brand.",
         "input_schema": {
             "type": "object",
-            "properties": {"voice": {"type": "string", "enum": VALID_VOICES}},
-            "required": ["voice"],
+            "properties": {"voice_id": {"type": "string", "enum": voice_ids}},
+            "required": ["voice_id"],
         },
     }
     system = (
-        "You pick a text-to-speech voice for a brand's ad voiceovers, from a fixed list of options. Base "
-        "the choice on the brand's tone/personality/style as described in its guideline — energetic vs "
-        "calm, playful vs professional, warm vs bold. This voice will be reused across every ad this "
-        "brand ever generates, so it needs to fit the brand generally, not any single campaign. Prefer "
-        "'marin' or 'cedar' by default — OpenAI's newest, most natural-sounding and expressive voices for "
-        "this model — unless another voice is a clearly better personality fit (e.g. 'onyx' for an "
-        "authoritative/deep brand, 'shimmer' for a bright/cheerful one); don't default to an older voice "
-        "like 'nova' or 'alloy' just because it's a recognizable name — they're flatter/less expressive."
+        "You pick a text-to-speech voice for a brand's ad voiceovers, from a fixed list of real available "
+        "voices (each with a name and description). Base the choice on the brand's tone/personality/style "
+        "as described in its guideline — energetic vs calm, playful vs professional, warm vs bold. This "
+        "voice will be reused across every ad this brand ever generates, so it needs to fit the brand "
+        "generally, not any single campaign."
     )
-    messages = [{"role": "user", "content": f"Brand profile: {brand_profile}\n\nPick the best-fit voice."}]
+    voice_list_text = "\n".join(f"- {v['voice_id']}: {v['name']} — {v['description']}" for v in available_voices)
+    messages = [
+        {
+            "role": "user",
+            "content": f"Brand profile: {brand_profile}\n\nAvailable voices:\n{voice_list_text}\n\nPick the best-fit voice_id.",
+        }
+    ]
     result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=200)
-    return result["voice"], tokens
+    return result["voice_id"], tokens
 
 
 # ---------------------------------------------------------------------------
@@ -486,23 +491,27 @@ def write_audio_script(
                 "voiceover_script": {
                     "type": "string",
                     "description": "The exact words to be spoken — short enough to comfortably fit the "
-                    "given duration at a natural speaking pace (roughly 2.5 words/second). Punchy, "
-                    "ad-native phrasing, not a restatement of the written social caption. Write real ad "
-                    "copy about the brand/product/offer — do NOT narrate the message angle's underlying "
-                    "concept as if reading its label out loud (angle 'chaos to calm' becoming the literal "
-                    "line 'Chaos in. Calm out.' is the failure mode to avoid). If the angle has an "
-                    "emotional arc, that arc belongs in voice_instructions as a delivery direction, not "
-                    "spoken as the words themselves.",
+                    "given duration at a natural speaking pace (roughly 2.5 words/second, not counting "
+                    "audio tags below). Punchy, ad-native phrasing, not a restatement of the written "
+                    "social caption. Write real ad copy about the brand/product/offer — do NOT narrate "
+                    "the message angle's underlying concept as if reading its label out loud (angle "
+                    "'chaos to calm' becoming the literal line 'Chaos in. Calm out.' is the failure mode "
+                    "to avoid); if the angle has an emotional arc, express it through delivery (see audio "
+                    "tags below), not by speaking the concept's own words. "
+                    "This is fed to ElevenLabs' eleven_v3 model, which reads inline audio tags in square "
+                    "brackets as delivery direction, e.g. '[excited] Big news! [sighs] Finally, some "
+                    "calm.' — weave 1-3 tags naturally into the line wherever the emotional beat actually "
+                    "changes (real examples: [excited], [whispers], [sighs], [laughs], [curious], "
+                    "[sarcastic] — never invent a tag for a sound effect like [gunshot] or [applause], "
+                    "only for how the voice itself sounds). Every script needs at least one tag — a line "
+                    "with zero tags is the flat/monotone failure mode this exists to prevent.",
                 },
                 "voice_instructions": {
                     "type": "string",
-                    "description": "Plain-language delivery direction for a TTS model — tone, pace, "
-                    "emotion (e.g. 'energetic and upbeat, quick pace' or 'calm, warm, reassuring'). Must "
-                    "explicitly call for expressive, dynamic delivery — varied pitch and emphasis across "
-                    "the line, not a flat/monotone/robotic reading. Naming specific words to stress or a "
-                    "moment to land with more weight (e.g. 'emphasize \"free\" like it's the whole point') "
-                    "gives the model something concrete to vary around, which matters even more for a "
-                    "short script that has little room to build an arc on its own.",
+                    "description": "A short, human-readable summary of the intended delivery (e.g. "
+                    "'energetic, upbeat, quick pace' or 'calm, warm, reassuring') — shown to the user for "
+                    "context when reviewing/editing the script, not sent to the TTS model directly (the "
+                    "actual delivery control is the inline audio tags inside voiceover_script above).",
                 },
                 "music_prompt": {
                     "type": "string",
@@ -515,18 +524,19 @@ def write_audio_script(
         },
     }
     system = (
-        "You write a short ad voiceover script, its delivery direction, and a background music style "
-        f"description for a '{campaign_type}' video ad, roughly {duration_seconds:.0f} seconds long. "
-        "Match the brand's tone and this specific message angle — but the angle is creative direction for "
-        "you to work from, not text to transcribe. If the angle describes an emotional arc or before/after "
-        "concept, express that through voice_instructions (a tone/pace shift during delivery) and through "
-        "what the ad copy is actually about — never by having the voiceover literally speak the concept's "
-        "own words (angle 'chaos to calm' → script 'Chaos in. Calm out.' is exactly the mistake to avoid). "
-        "The script must fit the duration naturally at conversational pace — err short, not long; a "
-        "truncated-mid-sentence voiceover is worse than a slightly short one. But don't over-compress into "
-        "a string of clipped fragments just to save time — a short line with real sentence flow gives a "
-        "TTS voice somewhere to put an emotional arc; deadpan fragments in a row read flat almost no "
-        "matter how it's delivered, regardless of how expressive the voice_instructions are."
+        "You write a short ad voiceover script (with inline eleven_v3 audio tags for delivery), a "
+        "human-readable delivery summary, and a background music style description for a "
+        f"'{campaign_type}' video ad, roughly {duration_seconds:.0f} seconds long. Match the brand's tone "
+        "and this specific message angle — but the angle is creative direction for you to work from, not "
+        "text to transcribe. If the angle describes an emotional arc or before/after concept, express that "
+        "through audio tags (a tone/mood shift during delivery) and through what the ad copy is actually "
+        "about — never by having the voiceover literally speak the concept's own words (angle 'chaos to "
+        "calm' → script 'Chaos in. Calm out.' is exactly the mistake to avoid). The script must fit the "
+        "duration naturally at conversational pace — err short, not long; a truncated-mid-sentence "
+        "voiceover is worse than a slightly short one. But don't over-compress into a string of clipped "
+        "fragments just to save time — a short line with real sentence flow, plus a well-placed audio tag "
+        "or two, gives the read somewhere to put an emotional arc; deadpan fragments with no tags read "
+        "flat no matter what."
     )
     user_content = (
         f"Brand profile: {brand_profile}\n\nMessage angle: {angle}\n\n"
