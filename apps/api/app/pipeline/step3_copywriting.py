@@ -24,12 +24,18 @@ def run_copywriting(client: Client, *, user_id: str, campaign: dict[str, Any]) -
 
     all_captions: list[dict[str, Any]] = []
     for variant in variants:
+        # target_platforms is set when this variant came from a scoped content plan
+        # ("IG 9 posts" / "TikTok 2 videos" as separate, platform-specific groups) —
+        # only write captions for the platform(s) it's actually meant for. Empty
+        # (unscoped campaigns, or any legacy variant) means no restriction, same as
+        # the old behavior of captioning for every platform.
+        platforms = variant.get("target_platforms") or PLATFORMS
         captions, tokens = llm.write_captions(
             message_angle=variant["message_angle"],
             brand_profile=brand_profile,
             product_profile=product_profile,
             campaign_type=campaign["campaign_type"],
-            platforms=PLATFORMS,
+            platforms=platforms,
         )
         usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=tokens)
 

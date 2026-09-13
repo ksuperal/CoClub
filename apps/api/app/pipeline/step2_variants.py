@@ -45,10 +45,10 @@ def _upload_variant_video(client: Client, *, user_id: str, campaign_id: str, var
 def _generate_and_mux_audio(
     client: Client, *, campaign: dict[str, Any], variant: dict[str, Any], video_bytes: bytes
 ) -> tuple[bytes, str | None]:
-    """Generates whichever of voiceover / background music this campaign opted
-    into (independently — either, both, or in principle neither, though the
-    caller only reaches here when at least one is on) and muxes the result onto
-    the video.
+    """Generates whichever of voiceover / background music this variant's plan
+    item opted into (independently — a variant can have either, both, or in
+    principle neither, though the caller only reaches here when at least one
+    is on) and muxes the result onto the video.
 
     Returns (video_bytes_with_audio, partial_error). `partial_error` is set
     whenever one of the two failed but the other still produced usable audio —
@@ -68,7 +68,7 @@ def _generate_and_mux_audio(
     errors: list[str] = []
 
     voiceover_bytes: bytes | None = None
-    if campaign.get("include_voiceover") and variant.get("voiceover_script"):
+    if variant.get("voiceover_script"):
         if not settings.elevenlabs_enabled:
             errors.append("voiceover requested but ELEVENLABS_API_KEY is not configured")
         else:
@@ -83,7 +83,7 @@ def _generate_and_mux_audio(
                 errors.append(f"voiceover failed: {exc}")
 
     music_bytes: bytes | None = None
-    if campaign.get("include_music") and variant.get("music_prompt"):
+    if variant.get("music_prompt"):
         if not settings.elevenlabs_enabled:
             errors.append("music requested but ELEVENLABS_API_KEY is not configured")
         else:
@@ -143,7 +143,7 @@ def poll_video_generation_job(variant_id: str, deadline_iso: str) -> None:
             else:
                 campaign = (
                     client.table("campaigns")
-                    .select("user_id, brand_id, include_voiceover, include_music")
+                    .select("user_id, brand_id")
                     .eq("id", variant["campaign_id"])
                     .single()
                     .execute()
@@ -154,7 +154,15 @@ def poll_video_generation_job(variant_id: str, deadline_iso: str) -> None:
                 video_bytes = _download_bytes(video_url)
 
                 audio_gen_error: str | None = None
-                if campaign.get("include_voiceover") or campaign.get("include_music"):
+                # Whether THIS variant wants audio is a per-variant question now (a content
+                # plan can mix pieces with and without audio in one campaign) — the presence
+                # of a written script/prompt on the variant itself is the real signal, not a
+                # campaign-wide flag. (Real bug this replaced: the old campaign-level
+                # include_voiceover/include_music columns are never set by the scoping flow,
+                # so this gate was always false for any plan-driven campaign — audio was
+                # silently never generated even though the variant had a script/prompt ready
+                # and no error was ever recorded.)
+                if variant.get("voiceover_script") or variant.get("music_prompt"):
                     try:
                         video_bytes, audio_gen_error = _generate_and_mux_audio(
                             client, campaign=campaign, variant=variant, video_bytes=video_bytes
@@ -402,26 +410,64 @@ def _load_profiles(client: Client, campaign: dict[str, Any]) -> tuple[dict[str, 
     return brand_profile, product_profile
 
 
+def _expand_content_plan(campaign: dict[str, Any]) -> list[dict[str, Any]]:
+    """Expands campaign.content_plan (a list of {media_type, target_platforms,
+    count, include_voiceover, include_music, concept} groups from the scoping
+    conversation) into one spec per individual variant. Falls back to the old
+    uniform campaign-level fields (variant_count/media_type/include_voiceover/
+    include_music, target_platforms=[] meaning "no restriction") when there's
+    no content_plan — keeps ideate_variants working for any campaign that
+    somehow skips scoping, not just plan-driven ones."""
+    plan = campaign.get("content_plan")
+    if not plan:
+        media_type = campaign.get("media_type", "image")
+        return [
+            {
+                "media_type": media_type,
+                "target_platforms": [],
+                "include_voiceover": media_type == "video" and campaign.get("include_voiceover", False),
+                "include_music": media_type == "video" and campaign.get("include_music", False),
+                "concept": "",
+            }
+            for _ in range(campaign.get("variant_count", 1))
+        ]
+
+    specs = []
+    for item in plan:
+        media_type = item.get("media_type", "image")
+        for _ in range(item.get("count", 1)):
+            specs.append(
+                {
+                    "media_type": media_type,
+                    "target_platforms": item.get("target_platforms") or [],
+                    "include_voiceover": media_type == "video" and item.get("include_voiceover", False),
+                    "include_music": media_type == "video" and item.get("include_music", False),
+                    "concept": item.get("concept") or "",
+                }
+            )
+    return specs
+
+
 # ---------------------------------------------------------------------------
-# Ideation — cheap, LLM-only. Produces a `variants` row per message angle with
-# prompt(s) filled in but no media generated yet, so the user can review/edit
-# before any image-gen/video-gen cost is spent. Campaign lands in
-# 'awaiting_prompt_review', not 'awaiting_approval' — that status is reserved
-# for "media exists, review it for posting."
+# Ideation — cheap, LLM-only. Produces a `variants` row per planned piece
+# (from campaign.content_plan, decided in the scoping conversation — see
+# routers/campaigns.py's /scope endpoints) with prompt(s) filled in but no
+# media generated yet, so the user can review/edit before any image-gen/
+# video-gen cost is spent. Campaign lands in 'awaiting_prompt_review', not
+# 'awaiting_approval' — that status is reserved for "media exists, review it
+# for posting."
 # ---------------------------------------------------------------------------
 def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -> list[dict[str, Any]]:
     campaign_id = campaign["id"]
-    media_type = campaign.get("media_type", "image")
-    include_voiceover = media_type == "video" and campaign.get("include_voiceover", False)
-    include_music = media_type == "video" and campaign.get("include_music", False)
-    include_audio = include_voiceover or include_music
+    specs = _expand_content_plan(campaign)
     brand_profile, product_profile = _load_profiles(client, campaign)
     reference_images, reference_kinds, reference_warning = _get_reference_images(client, campaign)
     logger.info(
-        "Step 2 ideation for campaign %s: product_id=%s, media_type=%s, image mode=%s",
+        "Step 2 ideation for campaign %s: product_id=%s, %d piece(s) planned (%s), image mode=%s",
         campaign_id,
         campaign.get("product_id"),
-        media_type,
+        len(specs),
+        ", ".join(sorted({s["media_type"] for s in specs})),
         f"images.edit with reference(s) {reference_kinds}" if reference_images else "text-only (images.generate)",
     )
 
@@ -436,14 +482,21 @@ def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -
             product_profile=product_profile,
             campaign_type=campaign["campaign_type"],
             brief=campaign["brief"],
-            n=campaign["variant_count"],
+            n=len(specs),
         )
         usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=ideation_tokens)
 
         variants = []
-        for angle in angles:
+        for spec, angle in zip(specs, angles):
+            media_type = spec["media_type"]
+            # The plan's concept (from the scoping conversation — the user's own creative
+            # direction, category research, or Claude's judgment) is the actual shot/scene
+            # to render; the message angle is the strategic hook. Both matter, so both get
+            # passed through together rather than the angle alone.
+            angle_with_concept = f"{angle} — creative concept: {spec['concept']}" if spec["concept"] else angle
+
             image_prompt, prompt_tokens = llm.write_image_prompt(
-                angle=angle,
+                angle=angle_with_concept,
                 brand_profile=brand_profile,
                 product_profile=product_profile,
                 reference_kinds=reference_kinds,
@@ -454,7 +507,7 @@ def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -
             motion_prompt: str | None = None
             if media_type == "video":
                 motion_prompt, motion_tokens = llm.ideate_motion_prompt(
-                    angle=angle,
+                    angle=angle_with_concept,
                     image_prompt=image_prompt,
                     brand_profile=brand_profile,
                     product_profile=product_profile,
@@ -469,9 +522,9 @@ def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -
                 "voice_instructions": None,
                 "music_prompt": None,
             }
-            if include_audio:
+            if spec["include_voiceover"] or spec["include_music"]:
                 audio_script, audio_tokens = llm.write_audio_script(
-                    angle=angle,
+                    angle=angle_with_concept,
                     image_prompt=image_prompt,
                     brand_profile=brand_profile,
                     product_profile=product_profile,
@@ -492,6 +545,7 @@ def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -
                         "image_prompt": image_prompt,
                         "motion_prompt": motion_prompt,
                         "media_type": media_type,
+                        "target_platforms": spec["target_platforms"],
                         "generation_status": "awaiting_prompt_review",
                         **audio_fields,
                     }

@@ -75,10 +75,6 @@ export default function IntakePage() {
 
   const [campaignType, setCampaignType] = useState("product_launch");
   const [brief, setBrief] = useState("");
-  const [variantCount, setVariantCount] = useState(4);
-  const [mediaType, setMediaType] = useState<"image" | "video">("image");
-  const [includeVoiceover, setIncludeVoiceover] = useState(false);
-  const [includeMusic, setIncludeMusic] = useState(false);
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -128,16 +124,9 @@ export default function IntakePage() {
         product_id: productId,
         campaign_type: campaignType,
         brief,
-        variant_count: variantCount,
-        media_type: mediaType,
-        include_voiceover: mediaType === "video" && includeVoiceover,
-        include_music: mediaType === "video" && includeMusic,
       });
 
-      setStep("Writing prompts for review — no generation cost yet…");
-      await api.ideate(campaign.id);
-
-      router.push(`/campaign/${campaign.id}/prompts`);
+      router.push(`/campaign/${campaign.id}/scope`);
     } catch (err: any) {
       setError(err.message ?? String(err));
       setStep(null);
@@ -256,61 +245,9 @@ export default function IntakePage() {
             onChange={(e) => setBrief(e.target.value)}
             className="border rounded px-3 py-2"
           />
-          <label className="text-sm text-neutral-600 flex items-center gap-2">
-            Number of variants to generate
-            <input
-              type="number"
-              min={1}
-              max={10}
-              value={variantCount}
-              onChange={(e) => setVariantCount(Number(e.target.value))}
-              className="border rounded px-2 py-1 w-20"
-            />
-          </label>
-          <fieldset className="flex flex-col gap-1">
-            <legend className="text-sm text-neutral-600 mb-1">Generate as</legend>
-            <div className="flex gap-4 text-sm">
-              <label className="flex items-center gap-1.5">
-                <input
-                  type="radio"
-                  name="media_type"
-                  checked={mediaType === "image"}
-                  onChange={() => setMediaType("image")}
-                />
-                Image
-              </label>
-              <label className="flex items-center gap-1.5">
-                <input
-                  type="radio"
-                  name="media_type"
-                  checked={mediaType === "video"}
-                  onChange={() => setMediaType("video")}
-                />
-                Video (animated from a generated starting image)
-              </label>
-            </div>
-          </fieldset>
-          {mediaType === "video" && (
-            <div className="flex flex-col gap-1">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={includeVoiceover}
-                  onChange={(e) => setIncludeVoiceover(e.target.checked)}
-                />
-                Add voiceover narration (uses your brand's chosen voice)
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={includeMusic} onChange={(e) => setIncludeMusic(e.target.checked)} />
-                Add background music
-              </label>
-            </div>
-          )}
           <p className="text-xs text-neutral-400">
-            Next step lets you review — and edit or skip — each variant's prompt
-            {mediaType === "video" && (includeVoiceover || includeMusic) ? " and audio script" : ""} before any
-            {mediaType === "video" ? " image, video," : " image"}
-            {mediaType === "video" && (includeVoiceover || includeMusic) ? " or audio" : ""} generation cost is spent.
+            Next step asks how big a campaign you want — how many posts, which platforms,
+            image or video — in your own words, before anything is written or generated.
           </p>
         </fieldset>
 
@@ -322,7 +259,7 @@ export default function IntakePage() {
           disabled={!!step}
           className="bg-black text-white rounded px-3 py-2 disabled:opacity-50"
         >
-          {step ? "Working…" : "Continue to prompt review"}
+          {step ? "Working…" : "Continue"}
         </button>
       </form>
     </div>

@@ -67,17 +67,19 @@ export const api = {
     product_id?: string | null;
     campaign_type: string;
     brief: string;
-    variant_count: number;
-    media_type: "image" | "video";
-    include_voiceover?: boolean;
-    include_music?: boolean;
   }) => request<any>("/campaigns", { method: "POST", body: JSON.stringify(body) }),
 
   listCampaigns: () => request<any[]>("/campaigns"),
 
   getCampaign: (id: string) => request<any>(`/campaigns/${id}`),
 
-  ideate: (id: string) => request<any[]>(`/campaigns/${id}/ideate`, { method: "POST" }),
+  sendScopeMessage: (id: string, text: string) =>
+    request<
+      | { kind: "question"; text: string }
+      | { kind: "plan"; items: any[]; summary: string }
+    >(`/campaigns/${id}/scope/messages`, { method: "POST", body: JSON.stringify({ text }) }),
+
+  confirmScope: (id: string) => request<any[]>(`/campaigns/${id}/scope/confirm`, { method: "POST" }),
 
   updateVariantPrompt: (
     campaignId: string,

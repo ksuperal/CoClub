@@ -18,6 +18,7 @@ type Variant = {
   generation_status: string;
   video_gen_error: string | null;
   audio_gen_error: string | null;
+  target_platforms: string[];
 };
 
 type Caption = {
@@ -241,7 +242,7 @@ export default function VariantsPage() {
           const variantCaptions = captions.filter((c) => c.variant_id === v.id);
           return (
             <div key={v.id} className="border rounded p-3 flex flex-col gap-2">
-              <label className="flex items-center gap-2 text-sm font-medium">
+              <label className="flex items-center gap-2 text-sm font-medium flex-wrap">
                 <input
                   type="checkbox"
                   checked={selected.has(v.id)}
@@ -249,6 +250,11 @@ export default function VariantsPage() {
                   onChange={() => toggle(v.id)}
                 />
                 {v.message_angle}
+                {v.target_platforms.length > 0 && (
+                  <span className="text-xs font-normal text-blue-600 border border-blue-200 bg-blue-50 rounded px-1.5 py-0.5">
+                    {v.target_platforms.join(", ")}
+                  </span>
+                )}
               </label>
               {v.media_type === "video" && v.video_url && (
                 <video src={v.video_url} controls className="rounded w-full" />

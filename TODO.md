@@ -2,153 +2,124 @@
 
 ## Feedback / analytics (Step 5)
 
-- [x] Analytics page shows a real graph (`MetricsChart.tsx`, `/campaign/[id]`) —
-      decoupled from the LLM report via `POST .../metrics/refresh` +
-      `GET .../metrics/history` (`step5_feedback.refresh_metrics`).
-- [x] Feedback report renders as actual markdown (`react-markdown`), not raw `**`.
-- [x] Best-posting-time recommendation (`services/posting_time.py`, real ML —
-      RidgeCV over a cyclical hour-of-day encoding) is wired into the variant
-      review screen, gated behind 10+ real posts *with* metrics data on a
-      platform — invisible until there's enough to say something real.
-- [ ] **Ads/boost integration** — a separate API from what's built (Graph API is
-      organic-only): Meta's **Marketing API**, needing `ads_read` (read-only spend/
-      reach/CPM, lower review burden) or `ads_management` (app actually spends the
-      customer's money — real financial-transaction liability, its own Ad Account
-      connection per customer, harder review). Recommended staged approach:
-      1. Now/next: **deep-link** the Recommendation section's suggested variant into
-         Meta's own native "Boost Post" flow — Meta handles all spend/payment/
-         confirmation UI, CoClub never touches money.
-      2. Later, only if wanted: add `ads_read` to cite real cost/reach numbers in
-         the recommendation instead of staying directional.
-      3. `ads_management` (CoClub programmatically spending on the customer's
-         behalf) — probably never; the liability/UX cost is high for what it adds
-         over option 1.
+- [x] Real graph (`MetricsChart.tsx`), markdown-rendered report, and an ML
+      best-posting-time recommendation (`services/posting_time.py`, RidgeCV)
+      gated behind 10+ real posts with data.
+- [ ] **Ads/boost integration** — Meta's Marketing API is separate from the
+      organic Graph API already built. Staged plan: (1) now — deep-link the
+      report's suggested variant into Meta's native "Boost Post" flow, no
+      money touches CoClub; (2) later — `ads_read` for real cost/reach numbers
+      in the recommendation; (3) `ads_management` (CoClub spending on the
+      customer's behalf) — probably never, liability/UX cost too high for
+      what it adds over (1).
 
 ## Video generation + posting
 
-- [ ] **Run migration `0006_video_generation.sql`** in the Supabase SQL editor —
-      nothing video-related works until this is applied (adds `variants.media_type`
-      /`motion_prompt`/`video_url`/`generation_status`/`video_gen_job_id`/
-      `video_gen_error`, `campaigns.media_type`, and the `awaiting_prompt_review`
-      campaign status).
-- [ ] **`pip install -r requirements.txt`** again in `apps/api` — no new packages
-      were needed for Luma either (reuses `httpx`), but confirm the venv is current.
-- [ ] **Real Luma API key** (`LUMA_API_KEY`, from platform.lumalabs.ai, prefixed
-      `luma-api-`) — without it, video generation fails cleanly per variant
-      (`generation_status = 'failed'`) rather than crashing, but nothing actually
-      generates. Unresolved prerequisite, not a code task. (Switched from Higgsfield
-      to Luma's Ray model — a background pricing comparison flagged Luma as
-      cheaper and better at preserving the source product's look; swapping vendors
-      again later only means touching `services/luma.py`'s two functions, nothing
-      else in the pipeline depends on which vendor is behind them.)
-- [ ] **Inline base64 image upload has an unconfirmed size ceiling** —
-      `services/luma.py` sends the starting image as inline base64
-      (`video.start_frame.data`) rather than uploading it to a hosted URL first.
-      Luma's docs call this "only for small media files" without a hard number; a
-      typical single ad-creative PNG should be fine, but this hasn't been tested
-      against Luma's actual limit. If it ever fails on a real (larger) image, the
-      fix is switching to Luma's Files API (`POST /v1/files`) and referencing the
-      resulting `file_id` instead.
-- [ ] **Facebook video posting** (`_post_video_to_facebook` in `services/social.py`)
-      uses the simple `file_url` param on `/{page_id}/videos` — not yet verified
-      against a live Page. Meta's documented path for larger files is a
-      resumable/chunked upload session; `file_url` may need to fall back to that
-      above some size. Test with a real video before relying on it.
-- [ ] **TikTok video posting** — same domain-verification prerequisite as the
-      existing photo path should carry over (video URLs come from the same
-      verified storage domain), but hasn't been tested end-to-end yet.
-- [ ] Video variants currently move the campaign straight to `awaiting_approval`
-      once `generate-media` returns, even though the video itself may still be
-      `generating` in the background (polled separately) — the variant review
-      screen shows a "Generating…" placeholder and disables its approve checkbox
-      until `generation_status = 'generated'`, but there's no notification when it
-      finishes; the user has to revisit the page.
-- [ ] **Split image vs. video into two separate intake screens, switched by a
-      toggle button** — instead of today's single `/intake` form with an embedded
-      "Generate as: Image / Video" radio pair (`apps/web/app/intake/page.tsx`)
-      that shows/hides fields inline. Two distinct screens (e.g. a top-level
-      toggle that swaps which form renders, or two routes like `/intake/image`
-      and `/intake/video`) so each medium's intake can diverge on its own terms
-      as video-specific options grow (resolution/duration once exposed, motion
-      style presets, etc.) without both crowding one form. Needs a design
-      decision on whether the toggle lives above the form (single route,
-      client-side swap) or as separate routes — affects how `media_type` state
-      and the shared fields (brand/product/campaign brief) are threaded through.
+- [x] Image-to-video via Luma (`ray-3.2`), muxed with audio via ffmpeg,
+      posted natively to Facebook/Instagram Reels/TikTok. Migrations
+      `0006`-`0008` applied; `LUMA_API_KEY`/`ELEVENLABS_API_KEY`/ffmpeg all
+      configured.
+- [ ] **TikTok video posting untested end-to-end** — same domain-verification
+      prerequisite as the photo path should carry over, unconfirmed live.
+- [ ] Luma's inline-base64 image upload (`services/luma.py`) has an
+      unconfirmed size ceiling — fine for a typical ad-creative PNG, untested
+      against the real limit. Fallback if it ever fails: Luma's Files API.
+- [ ] No notification when a video finishes generating in the background —
+      user has to revisit the page to see it's ready.
 
-## Agent interface (future — not MVP)
+## Campaign scoping (conversational, embedded in the wizard)
 
-- [ ] **Migrate toward an agent-driven interface, alongside (not replacing) the
-      fixed wizard** — triggered by evaluating Higgsfield Supercomputer. Full
-      phased plan written up in `docs/agent-migration-plan.md` (schema, tool
-      surface wrapping existing pipeline functions, human-in-the-loop approval
-      gates on the two real-spend actions, backend/frontend). Explicitly deferred:
-      scheduled/recurring agent tasks, new non-social connectors, OpenRouter
-      multi-model routing — none needed for MVP.
-- [x] **Audio (voiceover + background music) for video variants** — implemented
-      and fully configured end-to-end. Opt-in per campaign via **two independent
-      toggles** ("Add voiceover narration" / "Add background music" at intake,
-      video campaigns only). **Both voiceover and music now run on ElevenLabs**
-      (`ELEVENLABS_API_KEY`, one key for both) — voiceover switched from OpenAI's
-      `gpt-4o-mini-tts` to ElevenLabs' `eleven_v3` (`services/elevenlabs_tts.py`)
-      after real testing showed OpenAI's output reading as flat/monotone;
-      `eleven_v3` controls delivery via inline audio tags Claude writes directly
-      into the script (`[excited]`, `[sighs]`, etc.) plus a deliberately-lowered
-      `stability` setting, not a separate freeform instructions string. Music
-      via ElevenLabs Music API (`services/elevenlabs_music.py`); mixed + muxed
-      onto the video via `ffmpeg` (`services/audio_mix.py`, handles voiceover-
-      only / music-only / both). Claude writes a per-variant script/delivery-
-      summary/music-style set during ideation (`llm.write_audio_script`) —
-      explicitly instructed not to narrate the message angle's concept as
-      literal words (real bug hit in testing: angle "chaos to calm" → script
-      "Chaos in. Calm out." — fixed by requiring real ad copy, with the arc
-      expressed through audio tags instead). Each brand gets one consistent
-      voice, chosen once at intake from a live-fetched ElevenLabs voice list
-      matched to the brand's tone (`llm.choose_brand_voice`).
-      - [x] Migrations `0007_audio.sql` and `0008_split_audio_toggles.sql` applied.
-      - [x] `ffmpeg` installed and confirmed on PATH.
-      - [x] `LUMA_API_KEY` added.
-      - [x] `ELEVENLABS_API_KEY` added with all required scopes confirmed live:
-            Music Generation (Access), Text to Speech (Access), Voices (Read).
-      - [ ] Partial-failure handling (one of voiceover/music fails, the other
-            ships) is implemented and code-reviewed but the actual ElevenLabs
-            calls haven't both succeeded together in one real end-to-end test
-            yet — worth one more full run to confirm.
-- [ ] **Upfront credit/cost estimate before generation** — show an estimated $ cost
-      on the prompt-review screen (`/campaign/[id]/prompts`) before "Generate
-      selected," similar to how Supercomputer shows credit cost before a
-      generation runs. Future MVP iteration, not current scope.
+Replaced the old fixed intake fields (variant_count/media_type/audio
+toggles) with `/campaign/[id]/scope` — a short chat where the user describes
+campaign size in their own words and Claude proposes a concrete, heterogeneous
+**content plan** (per-group media type, target platform(s), audio, and a real
+creative concept) for confirmation before anything is generated. Full history:
+a general-purpose 17-tool standalone chat agent was built and deliberately
+removed first (`docs/agent-migration-plan.md`, kept for the reasoning trail)
+— it just re-asked the wizard's own questions via chat with no real
+advantage; this is what replaced it.
+
+- [x] Schema (`0011_campaign_scoping.sql`): `campaigns.scope_conversation`/
+      `content_plan`, `variants.target_platforms`. Old campaign-level
+      variant_count/media_type/audio columns kept only as a fallback default.
+- [x] `llm.continue_campaign_scoping` (+ new `_auto_tool_call` helper) — one
+      call per turn, Claude either asks a follow-up or calls
+      `finalize_campaign_plan`. `step2_variants._expand_content_plan` +
+      rewritten `ideate_variants` expand the plan into per-variant specs.
+      `step3_copywriting` only writes captions for a variant's
+      `target_platforms`; Step 4 needed no change since it posts wherever a
+      caption exists.
+- [x] Backend: `POST /campaigns/{id}/scope/messages`, `POST .../scope/confirm`
+      (replaces the old `POST .../ideate`). Frontend: `/intake` no longer
+      shows variant/media-type/audio fields; new `/campaign/[id]/scope` chat
+      page with a structured "Plan ready" card (per-group cards, not one
+      paragraph — fixed after real UI testing showed the plain-text summary
+      alone wasn't useful).
+- [x] Real market research: Claude has access to `web_search` (capped
+      `max_uses: 3`, confirmed billing-accurate via
+      `usage.server_tool_use.web_search_requests`), but only reaches for it
+      when the user seems unsure/wants Claude to decide — not automatic, by
+      explicit choice. Every plan item always carries a real `concept` (shot/
+      scene description), not just a format.
+- [x] Background music is mandatory for every video piece (forced server-side,
+      not left to the LLM); voiceover is optional and the agent must
+      explicitly ask before finalizing any plan with video, never decide
+      silently. Both verified live with real API calls.
+- [x] Scoping is platform-connection-aware — queries `social_accounts` and
+      flags an unconnected platform before finalizing instead of silently
+      planning for it. Verified live.
+- [x] **Fixed a real regression**: audio was silently never generated for any
+      scoped campaign — the gate still checked the old campaign-level
+      `include_voiceover`/`include_music` columns, which scoping never sets
+      (found via `ffprobe` on an actual "generated" video: zero audio
+      streams, no recorded error). Fixed to gate on the variant's own
+      `voiceover_script`/`music_prompt` instead.
+- [ ] **Not yet tested end-to-end through the actual UI.** Migrations
+      `0009`-`0011` are applied and the backend logic is real-API-verified in
+      isolation, but the full `/intake` → `/scope` → `/prompts` → generate
+      flow hasn't been run once through the browser.
+- [ ] Fresh video generation not yet re-verified after the audio-gating fix
+      above — confirm with a real `ffprobe` check that audio actually comes
+      through now.
+- [ ] Audio partial-failure handling (one of voiceover/music fails, the other
+      still ships) is implemented but not yet seen in a real run where both
+      calls succeed together.
+- [ ] **Platform targeting is locked in at scoping time** — no way to widen an
+      already-generated variant to more platforms later without re-scoping.
+      Mitigation for now: name every platform you might want upfront. Real
+      fix would need a "generate caption for this additional platform" action.
+- [ ] **Mid-campaign adaptive check-in** (not built) — scoping is one-shot,
+      before anything is generated; no way to revisit a plan once pieces are
+      live and earning real engagement. Bigger than the scoping work above:
+      needs either multi-wave campaigns or agent-initiated follow-up
+      campaigns, and brushes against the "no scheduled/recurring tasks"
+      boundary already drawn. Own design pass if pursued.
+- [ ] **Real past-performance data feeding into scoping** (not built) — plans
+      today come from brand guidelines + judgment (+ research), never from
+      this brand's own real engagement data, even though `post_metrics` +
+      `engagement_score` + the posting-time model already exist. Would need a
+      read-only aggregation tool, same pattern as `web_search`, with the same
+      "not enough data yet" gate the posting-time model uses. Natural
+      prerequisite for the check-in idea above to be genuinely smart.
+- [ ] **Upfront credit/cost estimate before generation** — show an estimated $
+      cost on the prompt-review screen before "Generate selected." Future
+      iteration, not current scope.
 
 ## Copywriting (Step 3)
 
-- [ ] **Improve caption/hashtag quality across all platforms** — currently one
-      LLM call (`llm.write_captions`, invoked from `pipeline/step3_copywriting.py`)
-      generates all platforms' captions together off a single system prompt with
-      just a sentence of style guidance per platform (Instagram: "medium length,
-      SEO-style"; TikTok: "short, punchy, high-velocity hashtags"; Facebook: "can
-      be slightly longer"). No dedicated research into what actually performs
-      well per platform yet. Candidate directions, not yet decided between:
-      1. Split into one LLM call per platform with a much more detailed,
-         platform-specific system prompt (current character-limit/format norms,
-         hook-writing patterns, hashtag-count conventions) — more tokens/cost per
-         campaign, likely better per-platform quality.
-      2. Feed real engagement data back in once it accumulates (ties into the
-         Step 5 metrics pipeline already built) — e.g. surface which past
-         captions' styles correlated with higher `engagement_score` as few-shot
-         context for future generations, rather than a static prompt forever.
-      3. Generate multiple caption variants per platform and let the user pick,
-         instead of one committed caption per platform today.
+- [ ] **Improve caption/hashtag quality across platforms** — one LLM call
+      today with thin per-platform guidance, no research into what actually
+      performs well. Candidate directions, undecided: (1) split into one call
+      per platform with richer platform-specific prompts; (2) feed real
+      engagement data back in once it accumulates; (3) generate multiple
+      caption variants per platform for the user to pick from.
 
 ## Housekeeping
 
-- [ ] `next` (14.2.35) has several known advisories per `npm audit` in `apps/web`
-      (DoS via Image Optimizer, HTTP request smuggling in rewrites, Server
-      Components DoS) — none introduced by anything in this repo, all in `next`
-      itself. Worth a deliberate upgrade pass + re-test, not a drive-by bump.
-- [ ] **Production Supabase project** — currently on the free tier, which
-      auto-pauses after 7 days of no API activity (fine for solo dev, not
-      acceptable once real customers depend on it) and has weaker backup
-      guarantees. Before real launch: spin up a **separate, paid** Supabase
-      project for production (don't just upgrade this one), run all 5 migrations
-      fresh against it, and point the deployed backend's `.env` there — keeps
-      real customer data from ever mixing with this project's accumulated test
-      brands/campaigns (the duplicate "Zucgoo"/"Slack" test entries, etc.).
+- [ ] `next` (14.2.35) has known advisories per `npm audit` — none introduced
+      by this repo, all in `next` itself. Deliberate upgrade pass needed, not
+      a drive-by bump.
+- [ ] **Production Supabase project** — currently free tier (auto-pauses after
+      7 days idle, weaker backups). Before real launch: separate paid project,
+      all migrations fresh, deployed backend pointed there — keep real
+      customer data away from this project's accumulated test brands/campaigns.

@@ -36,6 +36,39 @@ def _forced_tool_call(
     raise RuntimeError("Claude did not return a tool_use block")
 
 
+def _auto_tool_call(
+    *, system: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]], max_tokens: int = 1500
+) -> tuple[str | None, dict[str, Any] | None, int]:
+    """Like _forced_tool_call, but Claude may respond with plain text instead of
+    calling a tool (tool_choice: auto rather than forced) — for a bounded
+    conversational exchange where Claude itself decides whether it has enough
+    information yet, rather than a single one-shot extraction. `tools` may
+    include Anthropic-hosted server tools (e.g. web_search) alongside the one
+    real decision tool — server-tool blocks (server_tool_use/
+    web_search_tool_result) execute and get reasoned over within this same
+    call, so they never show up as the returned tool_input; only a genuine
+    tool_use block for one of the caller's own tools does. Returns
+    (text_response, tool_input, output_tokens); exactly one of the first two is
+    non-None (assuming at most one non-server tool is passed)."""
+    settings = get_settings()
+    resp = _client().messages.create(
+        model=settings.anthropic_model,
+        max_tokens=max_tokens,
+        system=system,
+        messages=messages,
+        tools=tools,
+        tool_choice={"type": "auto"},
+    )
+    text: str | None = None
+    tool_input: dict[str, Any] | None = None
+    for block in resp.content:
+        if block.type == "text":
+            text = (text or "") + block.text
+        elif block.type == "tool_use":
+            tool_input = block.input
+    return text, tool_input, resp.usage.output_tokens
+
+
 def _primary_secondary_content(
     *,
     files: list[tuple[bytes, str]],
@@ -296,6 +329,156 @@ def ideate_message_angles(
     messages = [{"role": "user", "content": user_text}]
     result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool)
     return result["angles"][:n], tokens
+
+
+# ---------------------------------------------------------------------------
+# Campaign scoping — a short conversational exchange, before any ideation or
+# spend, where the user describes the campaign in their own words and Claude
+# turns that into a concrete, heterogeneous plan: how many pieces, image vs
+# video, which platform(s) each is for, whether video pieces need voiceover/
+# music, AND a real creative concept per group (e.g. "product reveal on clean
+# background", "model holding product, realistic lifestyle setting") — not
+# just quantity/format. Replaces the old fixed intake-form fields (variant_
+# count/media_type/audio toggles), which forced mechanical settings with no
+# context before seeing anything.
+#
+# Research is available but not automatic: if the user gives concrete
+# direction ("IG 9 posts, TikTok 2 videos"), Claude should finalize from that
+# without searching anything. Only when the user seems unsure or explicitly
+# wants Claude to decide does it reach for real web search on the brand's
+# category before proposing a full plan — deliberate, since search has a real
+# cost per use and most users will just say what they want.
+#
+# One call per turn — Claude either asks a follow-up (plain text) or calls
+# finalize_campaign_plan once it has enough, possibly after one or more
+# server-side searches within that same call. The caller (routers/campaigns.py)
+# loops this with the user rather than this function looping internally, since
+# each non-search turn needs a real human reply in between.
+# ---------------------------------------------------------------------------
+def continue_campaign_scoping(
+    *,
+    brand_profile: dict[str, Any],
+    product_profile: dict[str, Any] | None,
+    campaign_type: str,
+    brief: str,
+    connected_platforms: list[str],
+    conversation: list[dict[str, str]],
+) -> tuple[dict[str, Any], int]:
+    """`conversation` is [{role: 'user'|'assistant', text}, ...], ending with the
+    user's latest reply. Returns (result, tokens) where result is either
+    {"kind": "question", "text": ...} — show this to the user and wait for
+    another reply — or {"kind": "plan", "items": [...], "summary": ...} — the
+    plan is ready, show `summary` for confirmation before calling ideate_variants."""
+    finalize_tool = {
+        "name": "finalize_campaign_plan",
+        "description": "Call this once you have enough information to propose a concrete content plan "
+        "for the campaign. Do not call it while you still need to ask a clarifying question — respond "
+        "with plain text instead in that case.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "description": "One entry per distinct group of pieces (e.g. one entry for '9 "
+                    "Instagram image posts', another for '2 TikTok videos') — not one entry per "
+                    "individual piece.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "media_type": {"type": "string", "enum": ["image", "video"]},
+                            "target_platforms": {
+                                "type": "array",
+                                "items": {"type": "string", "enum": ["instagram", "tiktok", "facebook"]},
+                                "description": "Which platform(s) this group is for.",
+                            },
+                            "count": {"type": "integer", "minimum": 1},
+                            "include_voiceover": {
+                                "type": "boolean",
+                                "description": "Only meaningful when media_type is 'video'. Whether this "
+                                "group of videos should have a spoken voiceover. This must reflect what "
+                                "the user actually told you — you're required to have asked them "
+                                "explicitly whether they want voiceover before ever finalizing a plan "
+                                "that includes video (unless they already volunteered an answer "
+                                "unprompted). Never silently decide this yourself.",
+                            },
+                            "concept": {
+                                "type": "string",
+                                "description": "The actual creative concept for this group — a specific "
+                                "shot type or scene, e.g. 'product reveal on a clean studio background', "
+                                "'model holding the product, realistic lifestyle setting', 'macro texture "
+                                "close-up', 'stop-motion style animation'. Always fill this in with "
+                                "something concrete — from what the user described if they gave creative "
+                                "direction, from category research if you did any, or from your own "
+                                "marketing judgment otherwise. Never leave it generic ('a nice photo').",
+                            },
+                        },
+                        "required": ["media_type", "target_platforms", "count", "concept"],
+                    },
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "A short, human-readable summary of the whole plan to show the user "
+                    "for confirmation — mention both the format breakdown AND the creative concepts, e.g. "
+                    "'9 Instagram posts (3 product-reveal, 3 lifestyle/model shots, 3 macro texture) + 2 "
+                    "TikTok videos with voiceover (unboxing-style).'",
+                },
+            },
+            "required": ["items", "summary"],
+        },
+    }
+    web_search_tool = {"type": "web_search_20260209", "name": "web_search", "max_uses": 3}
+    system = (
+        "You're helping the user decide the SIZE, COMPOSITION, and CREATIVE CONCEPT of an ad campaign "
+        "before any content gets written or generated — how many pieces, image vs video, which "
+        "platform(s), audio needs, and a real shot/scene concept for each group. Every plan item needs "
+        "a concrete concept, not just a format — 'a product photo' is not a concept, 'product reveal on "
+        "a clean studio background' is.\n\n"
+        "Audio rules for video pieces, which you don't decide freely: background music is ALWAYS added "
+        "automatically to every video — never ask about it, never mention it as a choice, it's not "
+        "optional. Voiceover is the opposite: it's genuinely optional, and you must explicitly ASK the "
+        "user whether they want voiceover on video pieces before finalizing any plan that includes video "
+        "— unless they already told you unprompted ('with voiceover', 'no voiceover needed'). If your "
+        "plan would include video and you haven't asked about voiceover yet, ask that as your next "
+        "question instead of finalizing — don't guess either way.\n\n"
+        "If the user gives concrete direction ('IG 9 posts, TikTok 2 short videos', or specific creative "
+        "ideas), work from that directly — don't search anything, just fill in reasonable concepts for "
+        "whatever they didn't specify and finalize (still ask about voiceover per the rule above if video "
+        "is involved and they haven't said). Only reach for web_search when the user seems unsure or "
+        "explicitly wants you to decide (e.g. 'I don't know', 'you decide', 'come up with something', "
+        "'do a full campaign for me') — in that case, research current marketing approaches for this "
+        "brand's actual category (use the brand/product profile below to know what that is) before "
+        "proposing a full plan, and mention briefly in your summary what informed it. Don't search when "
+        "the user has already told you what they want — it costs real money per search and isn't needed "
+        "then.\n\n"
+        "Ask one focused question at a time when you genuinely need more, not an overwhelming checklist. "
+        "Keep total scope reasonable for one campaign (roughly 1-20 pieces total) — if the user asks for "
+        "something huge, suggest a smaller batch instead of just complying.\n\n"
+        "Connected platforms note: below is which platforms this user has actually connected a social "
+        "account for. A plan can still target an unconnected platform if the user genuinely wants that "
+        "(the content will just sit unposted until they connect one) — but if they ask for a platform "
+        "that isn't connected, say so plainly before finalizing ('you don't have TikTok connected yet — "
+        "want me to plan for it anyway, or focus on what's connected?') rather than silently planning for "
+        "it as if it were ready to go. If the user hasn't specified any platform at all and you're "
+        "proposing the mix yourself, prefer the connected ones.\n\n"
+        f"Campaign type: {campaign_type}\nBrief: {brief}\nBrand profile: {brand_profile}"
+        + (f"\nProduct profile: {product_profile}" if product_profile else "")
+        + f"\nConnected platforms: {', '.join(connected_platforms) if connected_platforms else 'none'}"
+    )
+    messages = [{"role": turn["role"], "content": turn["text"]} for turn in conversation]
+    text, tool_input, tokens = _auto_tool_call(
+        system=system, messages=messages, tools=[finalize_tool, web_search_tool], max_tokens=2000
+    )
+    if tool_input is not None:
+        items = tool_input["items"]
+        # Background music is never a judgment call — force it on every video item here rather
+        # than trust prompt compliance (matches this codebase's usual pattern of a structural
+        # guarantee over an LLM instruction alone, e.g. the DB constraint behind the caption-
+        # dedup fix). Claude no longer even has an include_music field to fill in — see
+        # finalize_tool's schema above — so this is the sole source of truth for it.
+        for item in items:
+            item["include_music"] = item.get("media_type") == "video"
+        return {"kind": "plan", "items": items, "summary": tool_input["summary"]}, tokens
+    return {"kind": "question", "text": text or "Could you tell me more about the campaign you'd like?"}, tokens
 
 
 def _describe_references(reference_kinds: list[str], *, has_product_profile: bool) -> str:

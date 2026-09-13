@@ -15,19 +15,16 @@ type Variant = {
   voiceover_script: string | null;
   voice_instructions: string | null;
   music_prompt: string | null;
+  target_platforms: string[];
 };
 
 function EditablePrompt({
   campaignId,
   variant,
-  showVoiceover,
-  showMusic,
   onSaved,
 }: {
   campaignId: string;
   variant: Variant;
-  showVoiceover: boolean;
-  showMusic: boolean;
   onSaved: (updated: Variant) => void;
 }) {
   const [imagePrompt, setImagePrompt] = useState(variant.image_prompt);
@@ -39,6 +36,11 @@ function EditablePrompt({
   const [error, setError] = useState<string | null>(null);
 
   const isVideo = variant.media_type === "video";
+  // A campaign can now mix pieces with different settings (from the scoping plan),
+  // so whether this variant has audio fields at all is per-variant — the same
+  // signal (non-null) used before the campaign-wide audio toggles existed.
+  const showVoiceover = variant.voiceover_script !== null;
+  const showMusic = variant.music_prompt !== null;
   const dirty =
     imagePrompt !== variant.image_prompt ||
     (isVideo && motionPrompt !== (variant.motion_prompt ?? "")) ||
@@ -136,8 +138,6 @@ export default function PromptsPage() {
   const router = useRouter();
   const [variants, setVariants] = useState<Variant[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [includeVoiceover, setIncludeVoiceover] = useState(false);
-  const [includeMusic, setIncludeMusic] = useState(false);
   const [step, setStep] = useState<string | null>("Loading…");
   const [error, setError] = useState<string | null>(null);
 
@@ -145,15 +145,17 @@ export default function PromptsPage() {
     (async () => {
       try {
         const campaign = await api.getCampaign(id);
-        // Prompt review only makes sense before media is generated — if this campaign
-        // has already moved past it (e.g. the user navigated back here later), send
-        // them to the normal review screen instead of showing a stale/empty form.
+        // Prompt review only makes sense after scoping has produced variants to review,
+        // and before media is generated. Anything earlier (still scoping) sends back to
+        // that step; anything later (already generated) sends to the normal review screen.
+        if (campaign.status === "draft" || campaign.status === "awaiting_scope") {
+          router.replace(`/campaign/${id}/scope`);
+          return;
+        }
         if (campaign.status !== "awaiting_prompt_review") {
           router.replace(`/campaign/${id}/variants`);
           return;
         }
-        setIncludeVoiceover(!!campaign.include_voiceover);
-        setIncludeMusic(!!campaign.include_music);
 
         const v = await api.listVariants(id);
         setVariants(v);
@@ -182,7 +184,9 @@ export default function PromptsPage() {
     setError(null);
     try {
       const hasVideo = variants.some((v) => selected.has(v.id) && v.media_type === "video");
-      const hasAudio = includeVoiceover || includeMusic;
+      const hasAudio = variants.some(
+        (v) => selected.has(v.id) && (v.voiceover_script !== null || v.music_prompt !== null)
+      );
       setStep(
         hasVideo
           ? `Generating selected variants — image + video${hasAudio ? " + audio" : ""} generation, this can take a few minutes…`
@@ -213,20 +217,19 @@ export default function PromptsPage() {
       <div className="flex flex-col gap-4 mb-8">
         {variants.map((v) => (
           <div key={v.id} className="border rounded p-3 flex flex-col gap-2">
-            <label className="flex items-center gap-2 text-sm font-medium">
+            <label className="flex items-center gap-2 text-sm font-medium flex-wrap">
               <input type="checkbox" checked={selected.has(v.id)} onChange={() => toggle(v.id)} />
               {v.message_angle}
               {v.media_type === "video" && (
                 <span className="text-xs font-normal text-neutral-400 border rounded px-1.5 py-0.5">video</span>
               )}
+              {v.target_platforms.length > 0 && (
+                <span className="text-xs font-normal text-blue-600 border border-blue-200 bg-blue-50 rounded px-1.5 py-0.5">
+                  {v.target_platforms.join(", ")}
+                </span>
+              )}
             </label>
-            <EditablePrompt
-              campaignId={id}
-              variant={v}
-              showVoiceover={includeVoiceover}
-              showMusic={includeMusic}
-              onSaved={handlePromptSaved}
-            />
+            <EditablePrompt campaignId={id} variant={v} onSaved={handlePromptSaved} />
           </div>
         ))}
       </div>

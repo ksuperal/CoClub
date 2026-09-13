@@ -1,9 +1,16 @@
 # Migrating CoClub toward an agent interface
 
-**Status: planned, not started.** This document exists so the idea doesn't have to be
-re-derived later — nothing here is implemented. Triggered by evaluating Higgsfield
-Supercomputer (a chat-driven creative agent) and asking whether CoClub's own
-architecture could grow the same capability without adopting their product.
+**Status: superseded, not pursued.** Phases 0-4 below were actually implemented
+(branch `feature/agent-interface`) and then deliberately removed after trying
+it: a general-purpose standalone chat agent duplicating the whole pipeline via
+17 tools turned out to be the wrong shape — it just re-asked the same
+questions the wizard's forms already ask, via chat, with no real advantage.
+See `docs/campaign-scoping-plan.md` for what replaced this idea: a narrow,
+purpose-built conversational step embedded *inside* the existing wizard (only
+the "how big a campaign do you want" decision becomes conversational; brand/
+product intake, prompt review, caption editing, approve & post, and feedback
+all stay exactly as they were). Kept below for the reasoning trail, not as a
+live plan.
 
 ## Decisions already made (don't re-litigate these)
 
