@@ -7,8 +7,6 @@ CampaignType = Literal[
     "product_launch", "event_announcement", "promo_offer", "brand_awareness", "other"
 ]
 Platform = Literal["instagram", "tiktok", "facebook"]  # youtube removed for now
-MediaType = Literal["image", "video"]
-GenerationStatus = Literal["awaiting_prompt_review", "generating", "generated", "failed"]
 
 
 # ---------------------------------------------------------------------------
