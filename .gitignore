@@ -24,5 +24,8 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Claude Code
+.claude/
+
 # Logs
 *.log
