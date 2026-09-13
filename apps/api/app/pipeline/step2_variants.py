@@ -6,7 +6,7 @@ import httpx
 from supabase import Client
 
 from ..config import get_settings
-from ..services import image_gen, llm, luma, usage
+from ..services import audio_mix, elevenlabs_music, image_gen, llm, luma, openai_tts, usage
 from ..services.files import download_asset, rasterize_pdf_pages
 from ..services.scheduler import schedule_video_generation_poll
 from .product_intake import PRODUCT_ASSETS_BUCKET
@@ -28,17 +28,72 @@ MAX_TOTAL_REFERENCES = 16
 MAX_PDF_PAGES_PER_SOURCE = 3
 
 
-def _store_generated_video(client: Client, *, user_id: str, campaign_id: str, variant_id: str, video_url: str) -> str:
-    """Downloads the finished video from Luma's storage and re-uploads it to our own
-    storage bucket — keeps every generated asset under our own control/retention
-    instead of depending on Luma's presigned URL, which expires after 1 hour."""
-    resp = httpx.get(video_url, timeout=120)
+def _download_bytes(url: str) -> bytes:
+    resp = httpx.get(url, timeout=120)
     resp.raise_for_status()
+    return resp.content
+
+
+def _upload_variant_video(client: Client, *, user_id: str, campaign_id: str, variant_id: str, video_bytes: bytes) -> str:
     path = f"{user_id}/{campaign_id}/{variant_id}.mp4"
     client.storage.from_(VARIANTS_BUCKET).upload(
-        path, resp.content, {"content-type": "video/mp4", "upsert": "true"}
+        path, video_bytes, {"content-type": "video/mp4", "upsert": "true"}
     )
     return client.storage.from_(VARIANTS_BUCKET).get_public_url(path)
+
+
+def _generate_and_mux_audio(
+    client: Client, *, campaign: dict[str, Any], variant: dict[str, Any], video_bytes: bytes
+) -> tuple[bytes, str | None]:
+    """Generates whichever of voiceover / background music this campaign opted
+    into (independently — either, both, or in principle neither, though the
+    caller only reaches here when at least one is on) and muxes the result onto
+    the video.
+
+    Returns (video_bytes_with_audio, partial_error). `partial_error` is set
+    whenever one of the two failed but the other still produced usable audio —
+    the video ships with whatever audio it *did* get, but the caller must not
+    treat that as a silent full success: a request for "voiceover + music" that
+    quietly ships voiceover-only is exactly the kind of failure that looks fine
+    until someone actually listens (this is what happened before this function
+    returned partial_error — a failed music call left variants.audio_gen_error
+    untouched, so nothing anywhere recorded that music had been requested and
+    not delivered). Raises only when NEITHER voiceover nor music produced
+    anything — the caller then has truly nothing to mux and ships the silent
+    video, recording the failure as before."""
+    if not audio_mix.is_available():
+        raise RuntimeError("ffmpeg is not installed / not on PATH — cannot mix or mux audio onto video.")
+
+    settings = get_settings()
+    errors: list[str] = []
+
+    voiceover_bytes: bytes | None = None
+    if campaign.get("include_voiceover") and variant.get("voiceover_script"):
+        try:
+            brand = client.table("brands").select("voice_id").eq("id", campaign["brand_id"]).single().execute().data
+            voice_id = (brand or {}).get("voice_id")
+            voiceover_bytes = openai_tts.generate_voiceover(
+                variant["voiceover_script"], voice=voice_id, instructions=variant.get("voice_instructions")
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Voiceover generation failed for variant %s.", variant["id"])
+            errors.append(f"voiceover failed: {exc}")
+
+    music_bytes: bytes | None = None
+    if campaign.get("include_music") and variant.get("music_prompt"):
+        if not settings.elevenlabs_enabled:
+            errors.append("music requested but ELEVENLABS_API_KEY is not configured")
+        else:
+            try:
+                music_bytes = elevenlabs_music.generate_music(
+                    variant["music_prompt"], length_ms=int(luma.VIDEO_DURATION_SECONDS * 1000)
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Music generation failed for variant %s.", variant["id"])
+                errors.append(f"music failed: {exc}")
+
+    mixed = audio_mix.mix_and_mux(video_bytes, voiceover_bytes, music_bytes)  # raises only if both are None
+    return mixed, "; ".join(errors) if errors else None
 
 
 def poll_video_generation_job(variant_id: str, deadline_iso: str) -> None:
@@ -84,20 +139,47 @@ def poll_video_generation_job(variant_id: str, deadline_iso: str) -> None:
                 ).eq("id", variant_id).execute()
             else:
                 campaign = (
-                    client.table("campaigns").select("user_id").eq("id", variant["campaign_id"]).single().execute().data
+                    client.table("campaigns")
+                    .select("user_id, brand_id, include_voiceover, include_music")
+                    .eq("id", variant["campaign_id"])
+                    .single()
+                    .execute()
+                    .data
                 )
                 # Luma's output URL is presigned and expires after 1 hour — this download
                 # must happen promptly on the first tick that sees 'completed', not deferred.
-                stored_url = _store_generated_video(
+                video_bytes = _download_bytes(video_url)
+
+                audio_gen_error: str | None = None
+                if campaign.get("include_voiceover") or campaign.get("include_music"):
+                    try:
+                        video_bytes, audio_gen_error = _generate_and_mux_audio(
+                            client, campaign=campaign, variant=variant, video_bytes=video_bytes
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        # Audio is an enhancement on top of the video, not the core deliverable —
+                        # a failed voiceover/mix ships the silent video rather than blocking the
+                        # whole variant, same "non-fatal add-on" pattern as reference-image warnings.
+                        # (Reached only when NEITHER voiceover nor music produced anything at all —
+                        # a partial failure with the other succeeding comes back as audio_gen_error
+                        # above instead, not an exception.)
+                        logger.exception(
+                            "Audio generation/mux failed for variant %s — shipping silent video instead.",
+                            variant_id,
+                        )
+                        audio_gen_error = str(exc)
+
+                stored_url = _upload_variant_video(
                     client,
                     user_id=campaign["user_id"],
                     campaign_id=variant["campaign_id"],
                     variant_id=variant_id,
-                    video_url=video_url,
+                    video_bytes=video_bytes,
                 )
-                client.table("variants").update(
-                    {"video_url": stored_url, "generation_status": "generated"}
-                ).eq("id", variant_id).execute()
+                update: dict[str, Any] = {"video_url": stored_url, "generation_status": "generated"}
+                if audio_gen_error:
+                    update["audio_gen_error"] = audio_gen_error
+                client.table("variants").update(update).eq("id", variant_id).execute()
             _remove_job()
             return
 
@@ -327,6 +409,9 @@ def _load_profiles(client: Client, campaign: dict[str, Any]) -> tuple[dict[str, 
 def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -> list[dict[str, Any]]:
     campaign_id = campaign["id"]
     media_type = campaign.get("media_type", "image")
+    include_voiceover = media_type == "video" and campaign.get("include_voiceover", False)
+    include_music = media_type == "video" and campaign.get("include_music", False)
+    include_audio = include_voiceover or include_music
     brand_profile, product_profile = _load_profiles(client, campaign)
     reference_images, reference_kinds, reference_warning = _get_reference_images(client, campaign)
     logger.info(
@@ -376,6 +461,25 @@ def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -
                     client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=motion_tokens
                 )
 
+            audio_fields: dict[str, str | None] = {
+                "voiceover_script": None,
+                "voice_instructions": None,
+                "music_prompt": None,
+            }
+            if include_audio:
+                audio_script, audio_tokens = llm.write_audio_script(
+                    angle=angle,
+                    image_prompt=image_prompt,
+                    brand_profile=brand_profile,
+                    product_profile=product_profile,
+                    campaign_type=campaign["campaign_type"],
+                    duration_seconds=luma.VIDEO_DURATION_SECONDS,
+                )
+                usage.log_usage(
+                    client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=audio_tokens
+                )
+                audio_fields = audio_script  # {voiceover_script, voice_instructions, music_prompt}
+
             row = (
                 client.table("variants")
                 .insert(
@@ -386,6 +490,7 @@ def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -
                         "motion_prompt": motion_prompt,
                         "media_type": media_type,
                         "generation_status": "awaiting_prompt_review",
+                        **audio_fields,
                     }
                 )
                 .execute()

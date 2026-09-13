@@ -77,6 +77,8 @@ export default function IntakePage() {
   const [brief, setBrief] = useState("");
   const [variantCount, setVariantCount] = useState(4);
   const [mediaType, setMediaType] = useState<"image" | "video">("image");
+  const [includeVoiceover, setIncludeVoiceover] = useState(false);
+  const [includeMusic, setIncludeMusic] = useState(false);
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -128,6 +130,8 @@ export default function IntakePage() {
         brief,
         variant_count: variantCount,
         media_type: mediaType,
+        include_voiceover: mediaType === "video" && includeVoiceover,
+        include_music: mediaType === "video" && includeMusic,
       });
 
       setStep("Writing prompts for review — no generation cost yet…");
@@ -286,9 +290,27 @@ export default function IntakePage() {
               </label>
             </div>
           </fieldset>
+          {mediaType === "video" && (
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={includeVoiceover}
+                  onChange={(e) => setIncludeVoiceover(e.target.checked)}
+                />
+                Add voiceover narration (uses your brand's chosen voice)
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={includeMusic} onChange={(e) => setIncludeMusic(e.target.checked)} />
+                Add background music
+              </label>
+            </div>
+          )}
           <p className="text-xs text-neutral-400">
-            Next step lets you review — and edit or skip — each variant's prompt before any
-            {mediaType === "video" ? " image or video generation" : " image generation"} cost is spent.
+            Next step lets you review — and edit or skip — each variant's prompt
+            {mediaType === "video" && (includeVoiceover || includeMusic) ? " and audio script" : ""} before any
+            {mediaType === "video" ? " image, video," : " image"}
+            {mediaType === "video" && (includeVoiceover || includeMusic) ? " or audio" : ""} generation cost is spent.
           </p>
         </fieldset>
 

@@ -12,24 +12,39 @@ type Variant = {
   media_type: string;
   motion_prompt: string | null;
   generation_status: string;
+  voiceover_script: string | null;
+  voice_instructions: string | null;
+  music_prompt: string | null;
 };
 
 function EditablePrompt({
   campaignId,
   variant,
+  showVoiceover,
+  showMusic,
   onSaved,
 }: {
   campaignId: string;
   variant: Variant;
+  showVoiceover: boolean;
+  showMusic: boolean;
   onSaved: (updated: Variant) => void;
 }) {
   const [imagePrompt, setImagePrompt] = useState(variant.image_prompt);
   const [motionPrompt, setMotionPrompt] = useState(variant.motion_prompt ?? "");
+  const [voiceoverScript, setVoiceoverScript] = useState(variant.voiceover_script ?? "");
+  const [voiceInstructions, setVoiceInstructions] = useState(variant.voice_instructions ?? "");
+  const [musicPrompt, setMusicPrompt] = useState(variant.music_prompt ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isVideo = variant.media_type === "video";
-  const dirty = imagePrompt !== variant.image_prompt || (isVideo && motionPrompt !== (variant.motion_prompt ?? ""));
+  const dirty =
+    imagePrompt !== variant.image_prompt ||
+    (isVideo && motionPrompt !== (variant.motion_prompt ?? "")) ||
+    (showVoiceover &&
+      (voiceoverScript !== (variant.voiceover_script ?? "") || voiceInstructions !== (variant.voice_instructions ?? ""))) ||
+    (showMusic && musicPrompt !== (variant.music_prompt ?? ""));
 
   async function handleSave() {
     setSaving(true);
@@ -38,6 +53,8 @@ function EditablePrompt({
       const updated = await api.updateVariantPrompt(campaignId, variant.id, {
         image_prompt: imagePrompt,
         ...(isVideo ? { motion_prompt: motionPrompt } : {}),
+        ...(showVoiceover ? { voiceover_script: voiceoverScript, voice_instructions: voiceInstructions } : {}),
+        ...(showMusic ? { music_prompt: musicPrompt } : {}),
       });
       onSaved(updated);
     } catch (err: any) {
@@ -69,6 +86,37 @@ function EditablePrompt({
           />
         </label>
       )}
+      {showVoiceover && (
+        <>
+          <label className="text-xs text-neutral-500">
+            Voiceover script (spoken narration)
+            <textarea
+              value={voiceoverScript}
+              onChange={(e) => setVoiceoverScript(e.target.value)}
+              rows={2}
+              className="w-full border rounded p-2 text-sm mt-1"
+            />
+          </label>
+          <label className="text-xs text-neutral-500">
+            Voice delivery (tone/pace direction for the voiceover)
+            <input
+              value={voiceInstructions}
+              onChange={(e) => setVoiceInstructions(e.target.value)}
+              className="w-full border rounded p-2 text-sm mt-1"
+            />
+          </label>
+        </>
+      )}
+      {showMusic && (
+        <label className="text-xs text-neutral-500">
+          Background music style
+          <input
+            value={musicPrompt}
+            onChange={(e) => setMusicPrompt(e.target.value)}
+            className="w-full border rounded p-2 text-sm mt-1"
+          />
+        </label>
+      )}
       <div className="flex items-center gap-2">
         <button
           onClick={handleSave}
@@ -88,6 +136,8 @@ export default function PromptsPage() {
   const router = useRouter();
   const [variants, setVariants] = useState<Variant[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [includeVoiceover, setIncludeVoiceover] = useState(false);
+  const [includeMusic, setIncludeMusic] = useState(false);
   const [step, setStep] = useState<string | null>("Loading…");
   const [error, setError] = useState<string | null>(null);
 
@@ -102,6 +152,8 @@ export default function PromptsPage() {
           router.replace(`/campaign/${id}/variants`);
           return;
         }
+        setIncludeVoiceover(!!campaign.include_voiceover);
+        setIncludeMusic(!!campaign.include_music);
 
         const v = await api.listVariants(id);
         setVariants(v);
@@ -129,9 +181,11 @@ export default function PromptsPage() {
   async function handleGenerate() {
     setError(null);
     try {
+      const hasVideo = variants.some((v) => selected.has(v.id) && v.media_type === "video");
+      const hasAudio = includeVoiceover || includeMusic;
       setStep(
-        variants.some((v) => selected.has(v.id) && v.media_type === "video")
-          ? "Generating selected variants — image + video generation, this can take a few minutes…"
+        hasVideo
+          ? `Generating selected variants — image + video${hasAudio ? " + audio" : ""} generation, this can take a few minutes…`
           : "Generating selected variants — this calls real image generation, may take a minute…"
       );
       await api.generateMedia(id, Array.from(selected));
@@ -166,7 +220,13 @@ export default function PromptsPage() {
                 <span className="text-xs font-normal text-neutral-400 border rounded px-1.5 py-0.5">video</span>
               )}
             </label>
-            <EditablePrompt campaignId={id} variant={v} onSaved={handlePromptSaved} />
+            <EditablePrompt
+              campaignId={id}
+              variant={v}
+              showVoiceover={includeVoiceover}
+              showMusic={includeMusic}
+              onSaved={handlePromptSaved}
+            />
           </div>
         ))}
       </div>

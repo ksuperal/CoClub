@@ -430,6 +430,116 @@ def ideate_motion_prompt(
 
 
 # ---------------------------------------------------------------------------
+# Brand intake: pick one of OpenAI's 13 gpt-4o-mini-tts voices to represent this
+# brand consistently across every video variant it ever generates — a real
+# brand voice, not a random pick per ad. Called once, at brand creation.
+# ---------------------------------------------------------------------------
+def choose_brand_voice(brand_profile: dict[str, Any]) -> tuple[str, int]:
+    from .openai_tts import VALID_VOICES  # local import avoids a cycle (openai_tts doesn't import llm, but keeps the voice list single-sourced)
+
+    tool = {
+        "name": "record_voice_choice",
+        "description": "Record which voice best represents this brand.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"voice": {"type": "string", "enum": VALID_VOICES}},
+            "required": ["voice"],
+        },
+    }
+    system = (
+        "You pick a text-to-speech voice for a brand's ad voiceovers, from a fixed list of options. Base "
+        "the choice on the brand's tone/personality/style as described in its guideline — energetic vs "
+        "calm, playful vs professional, warm vs bold. This voice will be reused across every ad this "
+        "brand ever generates, so it needs to fit the brand generally, not any single campaign. Prefer "
+        "'marin' or 'cedar' by default — OpenAI's newest, most natural-sounding and expressive voices for "
+        "this model — unless another voice is a clearly better personality fit (e.g. 'onyx' for an "
+        "authoritative/deep brand, 'shimmer' for a bright/cheerful one); don't default to an older voice "
+        "like 'nova' or 'alloy' just because it's a recognizable name — they're flatter/less expressive."
+    )
+    messages = [{"role": "user", "content": f"Brand profile: {brand_profile}\n\nPick the best-fit voice."}]
+    result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=200)
+    return result["voice"], tokens
+
+
+# ---------------------------------------------------------------------------
+# Step 2b (audio): a short spoken script + delivery direction + a music style
+# description for one video variant — written together in one call since all
+# three describe the same few seconds of audio and are easiest to keep
+# consistent with each other that way. Budgeted to the video's real duration
+# so the mix step (services/audio_mix.py) doesn't have to truncate mid-word.
+# ---------------------------------------------------------------------------
+def write_audio_script(
+    *,
+    angle: str,
+    image_prompt: str,
+    brand_profile: dict[str, Any],
+    product_profile: dict[str, Any] | None = None,
+    campaign_type: str,
+    duration_seconds: float,
+) -> tuple[dict[str, str], int]:
+    tool = {
+        "name": "record_audio_script",
+        "description": "Record the voiceover script, delivery direction, and music prompt for this video variant.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "voiceover_script": {
+                    "type": "string",
+                    "description": "The exact words to be spoken — short enough to comfortably fit the "
+                    "given duration at a natural speaking pace (roughly 2.5 words/second). Punchy, "
+                    "ad-native phrasing, not a restatement of the written social caption. Write real ad "
+                    "copy about the brand/product/offer — do NOT narrate the message angle's underlying "
+                    "concept as if reading its label out loud (angle 'chaos to calm' becoming the literal "
+                    "line 'Chaos in. Calm out.' is the failure mode to avoid). If the angle has an "
+                    "emotional arc, that arc belongs in voice_instructions as a delivery direction, not "
+                    "spoken as the words themselves.",
+                },
+                "voice_instructions": {
+                    "type": "string",
+                    "description": "Plain-language delivery direction for a TTS model — tone, pace, "
+                    "emotion (e.g. 'energetic and upbeat, quick pace' or 'calm, warm, reassuring'). Must "
+                    "explicitly call for expressive, dynamic delivery — varied pitch and emphasis across "
+                    "the line, not a flat/monotone/robotic reading. Naming specific words to stress or a "
+                    "moment to land with more weight (e.g. 'emphasize \"free\" like it's the whole point') "
+                    "gives the model something concrete to vary around, which matters even more for a "
+                    "short script that has little room to build an arc on its own.",
+                },
+                "music_prompt": {
+                    "type": "string",
+                    "description": "A short instrumental music style description for a background bed "
+                    "(e.g. 'upbeat minimal synth-pop, energetic' or 'soft acoustic guitar, warm'). Must "
+                    "describe instrumental music only — never mention lyrics or words.",
+                },
+            },
+            "required": ["voiceover_script", "voice_instructions", "music_prompt"],
+        },
+    }
+    system = (
+        "You write a short ad voiceover script, its delivery direction, and a background music style "
+        f"description for a '{campaign_type}' video ad, roughly {duration_seconds:.0f} seconds long. "
+        "Match the brand's tone and this specific message angle — but the angle is creative direction for "
+        "you to work from, not text to transcribe. If the angle describes an emotional arc or before/after "
+        "concept, express that through voice_instructions (a tone/pace shift during delivery) and through "
+        "what the ad copy is actually about — never by having the voiceover literally speak the concept's "
+        "own words (angle 'chaos to calm' → script 'Chaos in. Calm out.' is exactly the mistake to avoid). "
+        "The script must fit the duration naturally at conversational pace — err short, not long; a "
+        "truncated-mid-sentence voiceover is worse than a slightly short one. But don't over-compress into "
+        "a string of clipped fragments just to save time — a short line with real sentence flow gives a "
+        "TTS voice somewhere to put an emotional arc; deadpan fragments in a row read flat almost no "
+        "matter how it's delivered, regardless of how expressive the voice_instructions are."
+    )
+    user_content = (
+        f"Brand profile: {brand_profile}\n\nMessage angle: {angle}\n\n"
+        f"The video's visual scene (for tonal consistency, not to be read aloud): {image_prompt}"
+    )
+    if product_profile:
+        user_content += f"\n\nProduct profile: {product_profile}"
+    messages = [{"role": "user", "content": user_content}]
+    result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool)
+    return result, tokens
+
+
+# ---------------------------------------------------------------------------
 # Step 2c: the one real agent loop — vision-based brand-compliance check
 # ---------------------------------------------------------------------------
 def check_image_quality(

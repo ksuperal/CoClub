@@ -69,6 +69,8 @@ export const api = {
     brief: string;
     variant_count: number;
     media_type: "image" | "video";
+    include_voiceover?: boolean;
+    include_music?: boolean;
   }) => request<any>("/campaigns", { method: "POST", body: JSON.stringify(body) }),
 
   listCampaigns: () => request<any[]>("/campaigns"),
@@ -77,7 +79,11 @@ export const api = {
 
   ideate: (id: string) => request<any[]>(`/campaigns/${id}/ideate`, { method: "POST" }),
 
-  updateVariantPrompt: (campaignId: string, variantId: string, body: { image_prompt: string; motion_prompt?: string }) =>
+  updateVariantPrompt: (
+    campaignId: string,
+    variantId: string,
+    body: { image_prompt: string; motion_prompt?: string; voiceover_script?: string; voice_instructions?: string; music_prompt?: string }
+  ) =>
     request<any>(`/campaigns/${campaignId}/variants/${variantId}/prompt`, {
       method: "PATCH",
       body: JSON.stringify(body),

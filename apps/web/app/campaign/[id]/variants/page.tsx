@@ -17,6 +17,7 @@ type Variant = {
   video_url: string | null;
   generation_status: string;
   video_gen_error: string | null;
+  audio_gen_error: string | null;
 };
 
 type Caption = {
@@ -251,6 +252,11 @@ export default function VariantsPage() {
               </label>
               {v.media_type === "video" && v.video_url && (
                 <video src={v.video_url} controls className="rounded w-full" />
+              )}
+              {v.media_type === "video" && v.video_url && v.audio_gen_error && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                  Posted without audio: {v.audio_gen_error}
+                </p>
               )}
               {v.media_type === "video" && !v.video_url && v.generation_status === "generating" && (
                 <p className="text-xs text-neutral-500 bg-neutral-100 rounded p-3 text-center">

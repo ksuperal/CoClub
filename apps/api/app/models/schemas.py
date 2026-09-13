@@ -28,6 +28,7 @@ class BrandOut(BaseModel):
     id: str
     name: str
     extracted_profile: dict[str, Any] | None
+    voice_id: str | None = None  # defaults until the 0007 migration is applied
     created_at: datetime
 
 
@@ -69,6 +70,12 @@ class CampaignCreate(BaseModel):
     media_type: MediaType = Field(
         default="image", description="What every variant in this campaign should be generated as"
     )
+    include_voiceover: bool = Field(
+        default=False, description="Generate a spoken voiceover for each video variant (media_type='video' only)"
+    )
+    include_music: bool = Field(
+        default=False, description="Generate a background music bed for each video variant (media_type='video' only)"
+    )
 
 
 class CampaignOut(BaseModel):
@@ -79,6 +86,8 @@ class CampaignOut(BaseModel):
     brief: str
     variant_count: int
     media_type: str = "image"  # defaults until the 0006 migration is applied
+    include_voiceover: bool = False  # defaults until the 0008 migration is applied
+    include_music: bool = False  # defaults until the 0008 migration is applied
     status: str
     error_message: str | None
     warning_message: str | None = None  # defaults to None until the 0005 migration is applied
@@ -114,11 +123,18 @@ class VariantOut(BaseModel):
     video_url: str | None = None
     generation_status: str = "generated"
     video_gen_error: str | None = None
+    voiceover_script: str | None = None  # defaults until the 0007 migration is applied
+    voice_instructions: str | None = None
+    music_prompt: str | None = None
+    audio_gen_error: str | None = None
 
 
 class VariantPromptUpdate(BaseModel):
     image_prompt: str
     motion_prompt: str | None = None
+    voiceover_script: str | None = None
+    voice_instructions: str | None = None
+    music_prompt: str | None = None
 
 
 class GenerateMediaRequest(BaseModel):

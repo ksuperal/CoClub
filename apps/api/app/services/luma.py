@@ -29,6 +29,9 @@ import httpx
 from ..config import get_settings
 
 VIDEO_MODEL = "ray-3.2"
+VIDEO_DURATION_SECONDS = 5.0  # matches the "5s" duration submitted below — shared
+# so the audio pipeline (llm.write_audio_script, services/audio_mix.py) budgets
+# scripts against the video's real length instead of a separately-guessed number.
 
 
 def _headers() -> dict[str, str]:
@@ -52,7 +55,7 @@ def submit_image_to_video(image_bytes: bytes, motion_prompt: str, *, content_typ
             "prompt": motion_prompt,
             "video": {
                 "resolution": "720p",
-                "duration": "5s",
+                "duration": f"{int(VIDEO_DURATION_SECONDS)}s",
                 "start_frame": {"data": base64.b64encode(image_bytes).decode("utf-8"), "media_type": content_type},
             },
         },

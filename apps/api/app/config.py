@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     luma_api_key: str | None = None
     luma_base_url: str = "https://agents.lumalabs.ai/v1"
 
+    # Audio (voiceover + background music) for video variants — opt-in per
+    # campaign. Voiceover reuses the existing OpenAI account (gpt-4o-mini-tts, no
+    # new key needed); music needs a separate ElevenLabs key. Both are "gated, not
+    # broken, if unconfigured" — same pattern as Luma. Mixing/muxing the two
+    # together onto the video additionally requires the `ffmpeg` binary on PATH —
+    # a system dependency, not a pip package; see README.md.
+    elevenlabs_api_key: str | None = None
+    elevenlabs_base_url: str = "https://api.elevenlabs.io/v1"
+
     @property
     def meta_oauth_enabled(self) -> bool:
         return bool(
@@ -60,6 +69,10 @@ class Settings(BaseSettings):
     @property
     def luma_enabled(self) -> bool:
         return bool(self.luma_api_key)
+
+    @property
+    def elevenlabs_enabled(self) -> bool:
+        return bool(self.elevenlabs_api_key)
 
 
 @lru_cache

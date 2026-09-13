@@ -77,6 +77,7 @@ Open http://localhost:3000.
 | `SOCIAL_TOKEN_ENCRYPTION_KEY` | api | only if connecting accounts | encrypts stored account tokens at rest; generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `FRONTEND_URL` | api | no | where the OAuth callback redirects the browser back to; defaults to `http://localhost:3000` |
 | `LUMA_API_KEY` | api | only for video campaigns | image-to-video generation (Step 2), via Luma's Ray model (Luma Agents API). API key from platform.lumalabs.ai. Without it, video campaigns still ideate/review normally but each variant's generation fails cleanly with `generation_status = 'failed'` instead of crashing |
+| `ELEVENLABS_API_KEY` | api | no | background music for video variants with audio enabled (Step 2). Voiceover itself reuses `OPENAI_API_KEY` — no separate key needed. Also requires the `ffmpeg` binary on PATH (system dependency, not pip) to mix/mux audio onto the video; without either, a video variant still generates, just silently without audio |
 
 ## Social posting setup
 

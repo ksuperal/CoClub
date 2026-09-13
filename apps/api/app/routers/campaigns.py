@@ -65,6 +65,8 @@ def create_campaign(body: CampaignCreate, user_id: str = Depends(get_current_use
                 "brief": body.brief,
                 "variant_count": body.variant_count,
                 "media_type": body.media_type,
+                "include_voiceover": body.include_voiceover,
+                "include_music": body.include_music,
             }
         )
         .execute()
@@ -149,6 +151,12 @@ def update_variant_prompt(
     update = {"image_prompt": body.image_prompt}
     if body.motion_prompt is not None:
         update["motion_prompt"] = body.motion_prompt
+    if body.voiceover_script is not None:
+        update["voiceover_script"] = body.voiceover_script
+    if body.voice_instructions is not None:
+        update["voice_instructions"] = body.voice_instructions
+    if body.music_prompt is not None:
+        update["music_prompt"] = body.music_prompt
     updated = client.table("variants").update(update).eq("id", variant_id).execute()
     return updated.data[0]
 

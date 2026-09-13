@@ -75,6 +75,45 @@
       client-side swap) or as separate routes — affects how `media_type` state
       and the shared fields (brand/product/campaign brief) are threaded through.
 
+## Agent interface (future — not MVP)
+
+- [ ] **Migrate toward an agent-driven interface, alongside (not replacing) the
+      fixed wizard** — triggered by evaluating Higgsfield Supercomputer. Full
+      phased plan written up in `docs/agent-migration-plan.md` (schema, tool
+      surface wrapping existing pipeline functions, human-in-the-loop approval
+      gates on the two real-spend actions, backend/frontend). Explicitly deferred:
+      scheduled/recurring agent tasks, new non-social connectors, OpenRouter
+      multi-model routing — none needed for MVP.
+- [x] **Audio (voiceover + background music) for video variants** — implemented.
+      Opt-in per campaign via **two independent toggles** ("Add voiceover
+      narration" / "Add background music" at intake, video campaigns only — not
+      one combined checkbox). Voiceover via OpenAI `gpt-4o-mini-tts` (reuses
+      `OPENAI_API_KEY`, no new account — `services/openai_tts.py`); music via
+      ElevenLabs Music API (`ELEVENLABS_API_KEY` — `services/elevenlabs_music.py`);
+      mixed + muxed onto the video via `ffmpeg` (`services/audio_mix.py`, handles
+      voiceover-only / music-only / both). Claude writes a per-variant script/
+      delivery-direction/music-style set during ideation (`llm.write_audio_script`)
+      regardless of which toggle(s) are on (cheap, one call) — only the relevant
+      field(s) are shown on the prompt-review screen and actually generated.
+      Each brand gets one consistent voice, chosen once at intake from its
+      guideline's tone (`llm.choose_brand_voice`).
+      - [x] Migration `0007_audio.sql` applied.
+      - [x] `ffmpeg` installed and confirmed on PATH.
+      - [x] `LUMA_API_KEY` and `ELEVENLABS_API_KEY` (Music Generation scope only)
+            both added.
+      - [ ] **Run migration `0008_split_audio_toggles.sql`** — adds
+            `campaigns.include_voiceover` / `include_music`, drops the old
+            combined `include_audio` column. Not yet applied.
+      - [ ] Not yet tested against a live Luma video end-to-end with the split
+            toggles — the ffmpeg commands themselves (both the `amix`-ducked
+            two-track case and the single-track voiceover-only/music-only case)
+            are standard and well-documented, but unverified for real in this
+            environment.
+- [ ] **Upfront credit/cost estimate before generation** — show an estimated $ cost
+      on the prompt-review screen (`/campaign/[id]/prompts`) before "Generate
+      selected," similar to how Supercomputer shows credit cost before a
+      generation runs. Future MVP iteration, not current scope.
+
 ## Copywriting (Step 3)
 
 - [ ] **Improve caption/hashtag quality across all platforms** — currently one
