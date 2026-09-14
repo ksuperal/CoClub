@@ -63,6 +63,9 @@ export const api = {
 
   getBrand: (id: string) => request<any>(`/brands/${id}`),
 
+  updateBrand: (id: string, body: { name: string; description?: string; guideline_raw_text: string; guideline_asset_paths: string[] }) =>
+    request<any>(`/brands/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+
   deleteBrand: (id: string) => request(`/brands/${id}`, { method: "DELETE" }),
 
   uploadProductAssets: (files: File[]) => uploadFiles("/assets/product", files),

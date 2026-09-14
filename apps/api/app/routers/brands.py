@@ -50,6 +50,37 @@ def get_brand(brand_id: str, user_id: str = Depends(get_current_user_id)):
     return result.data[0]
 
 
+@router.patch("/{brand_id}", response_model=BrandOut)
+def update_brand(brand_id: str, body: BrandCreate, user_id: str = Depends(get_current_user_id)):
+    """Update a brand by ID"""
+    from fastapi import HTTPException
+
+    client = get_service_client()
+
+    # Check if brand exists and belongs to user
+    result = client.table("brands").select("*").eq("id", brand_id).eq("user_id", user_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    # Check if name is being changed to a duplicate
+    if body.name.lower() != result.data[0]["name"].lower():
+        existing = client.table("brands").select("id").eq("user_id", user_id).ilike("name", body.name).execute()
+        if existing.data:
+            raise HTTPException(
+                status_code=400,
+                detail=f"A brand named '{body.name}' already exists. Please choose a different name."
+            )
+
+    # Update the brand (only editable fields)
+    update_data = {
+        "name": body.name,
+        "description": body.description,
+    }
+
+    updated = client.table("brands").update(update_data).eq("id", brand_id).eq("user_id", user_id).execute()
+    return updated.data[0]
+
+
 @router.delete("/{brand_id}")
 def delete_brand(brand_id: str, user_id: str = Depends(get_current_user_id)):
     """Delete a brand by ID"""

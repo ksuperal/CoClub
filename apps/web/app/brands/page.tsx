@@ -95,13 +95,21 @@ export default function BrandsPage() {
                 Style: {brand.extracted_profile.style}
               </p>
             )}
-            <div className="flex items-center justify-between">
-              <Link
-                href={`/intake?brand_id=${brand.id}`}
-                className="text-sm text-blue-600 hover:underline"
-              >
-                Create campaign →
-              </Link>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <Link
+                  href={`/intake?brand_id=${brand.id}`}
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  Create campaign →
+                </Link>
+                <Link
+                  href={`/brands/${brand.id}/edit`}
+                  className="text-xs text-neutral-500 hover:text-neutral-700"
+                >
+                  Edit
+                </Link>
+              </div>
               <span className="text-xs text-neutral-400">
                 {new Date(brand.created_at).toLocaleDateString()}
               </span>
