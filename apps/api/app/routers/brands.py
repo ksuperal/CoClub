@@ -9,13 +9,25 @@ router = APIRouter(prefix="/brands", tags=["brands"])
 
 @router.post("", response_model=BrandOut)
 def create_brand(body: BrandCreate, user_id: str = Depends(get_current_user_id)):
+    from fastapi import HTTPException
+
     client = get_service_client()
+
+    # Check if a brand with the same name already exists for this user
+    existing = client.table("brands").select("id").eq("user_id", user_id).ilike("name", body.name).execute()
+    if existing.data:
+        raise HTTPException(
+            status_code=400,
+            detail=f"A brand named '{body.name}' already exists. Please choose a different name."
+        )
+
     brand = run_intake(
         client,
         user_id=user_id,
         name=body.name,
         guideline_raw_text=body.guideline_raw_text,
         guideline_asset_paths=body.guideline_asset_paths,
+        description=body.description,
     )
     return brand
 
@@ -24,3 +36,40 @@ def create_brand(body: BrandCreate, user_id: str = Depends(get_current_user_id))
 def list_brands(user_id: str = Depends(get_current_user_id)):
     client = get_service_client()
     return client.table("brands").select("*").eq("user_id", user_id).order("created_at", desc=True).execute().data
+
+
+@router.get("/{brand_id}", response_model=BrandOut)
+def get_brand(brand_id: str, user_id: str = Depends(get_current_user_id)):
+    """Get a single brand by ID"""
+    from fastapi import HTTPException
+
+    client = get_service_client()
+    result = client.table("brands").select("*").eq("id", brand_id).eq("user_id", user_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    return result.data[0]
+
+
+@router.delete("/{brand_id}")
+def delete_brand(brand_id: str, user_id: str = Depends(get_current_user_id)):
+    """Delete a brand by ID"""
+    from fastapi import HTTPException, Response
+
+    client = get_service_client()
+
+    # Check if brand exists and belongs to user
+    result = client.table("brands").select("id").eq("id", brand_id).eq("user_id", user_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    # Check if any campaigns reference this brand
+    campaigns = client.table("campaigns").select("id").eq("brand_id", brand_id).limit(1).execute()
+    if campaigns.data:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete brand that is used in existing campaigns"
+        )
+
+    # Delete the brand
+    client.table("brands").delete().eq("id", brand_id).eq("user_id", user_id).execute()
+    return Response(status_code=204)

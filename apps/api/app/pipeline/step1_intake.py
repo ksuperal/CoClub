@@ -14,7 +14,13 @@ BRAND_ASSETS_BUCKET = "brand-assets"
 
 
 def run_intake(
-    client: Client, *, user_id: str, name: str, guideline_raw_text: str, guideline_asset_paths: list[str]
+    client: Client,
+    *,
+    user_id: str,
+    name: str,
+    guideline_raw_text: str,
+    guideline_asset_paths: list[str],
+    description: str | None = None
 ) -> dict[str, Any]:
     """Structured extraction of the brand profile, then persists the brand row.
 
@@ -56,20 +62,18 @@ def run_intake(
         except Exception:  # noqa: BLE001
             logger.exception("Voice selection failed for brand '%s' — will fall back to a default voice.", name)
 
-    row = (
-        client.table("brands")
-        .insert(
-            {
-                "user_id": user_id,
-                "name": name,
-                "guideline_raw_text": guideline_raw_text,
-                "guideline_assets": guideline_asset_paths,
-                "extracted_profile": profile,
-                "voice_id": voice_id,
-            }
-        )
-        .execute()
-    )
+    brand_data = {
+        "user_id": user_id,
+        "name": name,
+        "guideline_raw_text": guideline_raw_text,
+        "guideline_assets": guideline_asset_paths,
+        "extracted_profile": profile,
+        "voice_id": voice_id,
+    }
+    if description:
+        brand_data["description"] = description
+
+    row = client.table("brands").insert(brand_data).execute()
     brand = row.data[0]
 
     usage.log_usage(

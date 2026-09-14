@@ -14,6 +14,9 @@ Platform = Literal["instagram", "tiktok", "facebook"]  # youtube removed for now
 # ---------------------------------------------------------------------------
 class BrandCreate(BaseModel):
     name: str
+    description: str | None = Field(
+        default=None, description="High-level description of the brand (industry, positioning, target audience)"
+    )
     guideline_raw_text: str = Field(
         ..., description="Pasted/extracted text of the brand guideline"
     )
@@ -25,8 +28,10 @@ class BrandCreate(BaseModel):
 class BrandOut(BaseModel):
     id: str
     name: str
+    description: str | None = None
     extracted_profile: dict[str, Any] | None
     voice_id: str | None = None  # defaults until the 0007 migration is applied
+    brand_voice_id: str | None = None  # new field from 0012 migration
     created_at: datetime
 
 

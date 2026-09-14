@@ -105,6 +105,38 @@ advantage; this is what replaced it.
       cost on the prompt-review screen before "Generate selected." Future
       iteration, not current scope.
 
+## Brand Library
+
+Redesigned brand management to eliminate duplicate brand creation across campaigns.
+Brands are now reusable presets stored in a library, separate from campaign creation.
+
+- [x] Database migration (`0012_brand_library.sql`) — added `description` and
+      `brand_voice_id` columns to `brands` table, added index on `user_id` + `created_at`
+- [x] Backend API routes — `GET /brands/{id}` endpoint, updated `POST /brands` to
+      accept description parameter
+- [x] Brand library UI (`/brands` page) — grid view of all user's brands with
+      name, description preview, primary color badge, and "Create campaign" links
+- [x] Brand creation form (`/brands/new` page) — standalone form for creating
+      reusable brand presets (name, description, guidelines text + files)
+- [x] Updated campaign intake flow (`/intake` page) — replaced old flow with
+      brand selection/creation toggle. Supports:
+      - Selecting from existing brands via dropdown
+      - Creating new brands inline without leaving campaign flow
+      - Pre-selection via `?brand_id=` query parameter
+      - Auto-detection if user has no brands (forces create mode)
+- [ ] **Brand editing** — `/brands/[id]/edit` page to update brand name,
+      description, or guidelines after creation
+- [ ] **Brand archiving/deletion** — soft-delete or archive brands no longer in
+      use, with safeguards if campaigns still reference them
+- [ ] **Brand analytics** — show campaign count and aggregated performance metrics
+      per brand in the library view
+- [ ] **Product library** — same pattern as brands: reusable product presets
+      (name, description, photos) that can be selected across campaigns instead of
+      re-uploading. Requires schema similar to brands table.
+- [ ] **Moodboard upload during scoping conversation** — allow users to upload
+      reference images mid-conversation in `/campaign/[id]/scope` to guide the
+      agent's creative direction (Phase 2 enhancement from original scoping design)
+
 ## Copywriting (Step 3)
 
 - [x] **Improve caption/hashtag quality across platforms** — enhanced with

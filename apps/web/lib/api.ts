@@ -17,6 +17,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
   if (!res.ok) {
     const body = await res.text();
+    // Try to parse JSON error response from FastAPI
+    try {
+      const errorData = JSON.parse(body);
+      // FastAPI returns errors in { detail: "message" } format
+      if (errorData.detail) {
+        throw new Error(errorData.detail);
+      }
+    } catch (parseError) {
+      // If JSON parsing fails, fall back to the raw body
+    }
     throw new Error(`${res.status} ${res.statusText}: ${body}`);
   }
   if (res.status === 204) return undefined as T;
@@ -46,10 +56,14 @@ async function uploadFiles(endpoint: string, files: File[]): Promise<string[]> {
 export const api = {
   uploadBrandAssets: (files: File[]) => uploadFiles("/assets/brand-guideline", files),
 
-  createBrand: (body: { name: string; guideline_raw_text: string; guideline_asset_paths: string[] }) =>
+  createBrand: (body: { name: string; description?: string; guideline_raw_text: string; guideline_asset_paths: string[] }) =>
     request<any>("/brands", { method: "POST", body: JSON.stringify(body) }),
 
   listBrands: () => request<any[]>("/brands"),
+
+  getBrand: (id: string) => request<any>(`/brands/${id}`),
+
+  deleteBrand: (id: string) => request(`/brands/${id}`, { method: "DELETE" }),
 
   uploadProductAssets: (files: File[]) => uploadFiles("/assets/product", files),
 
