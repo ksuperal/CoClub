@@ -107,12 +107,24 @@ advantage; this is what replaced it.
 
 ## Copywriting (Step 3)
 
-- [ ] **Improve caption/hashtag quality across platforms** — one LLM call
-      today with thin per-platform guidance, no research into what actually
-      performs well. Candidate directions, undecided: (1) split into one call
-      per platform with richer platform-specific prompts; (2) feed real
-      engagement data back in once it accumulates; (3) generate multiple
-      caption variants per platform for the user to pick from.
+- [x] **Improve caption/hashtag quality across platforms** — enhanced with
+      comprehensive platform-specific best practices based on real social media
+      performance patterns. Single optimized LLM call now includes:
+      - Instagram: Hook-first structure, optimal caption length (125-150 char preview),
+        emoji usage (2-4), strategic hashtag mix (8-15: popular/niche/branded), clear CTAs
+      - TikTok: Ultra-short captions (max 100 char), question/curiosity hooks,
+        conversational tone, 3-5 hashtags (trending + niche), anti-corporate speak
+      - Facebook: Longer-form allowed (3-5 sentences), community-building tone,
+        minimal hashtags (1-3), story-driven engagement
+      - Core principles: front-load value, write for humans first/algorithms second,
+        avoid generic filler, every word earns its place
+- [ ] **Generate multiple caption variants per platform** — future iteration to
+      give users choice between 2-3 options per platform (would require schema
+      change or UI update to handle variant selection)
+- [ ] **Feed real engagement data into copywriting** — once enough post_metrics
+      accumulate, analyze what caption patterns actually perform well for this
+      brand/category and feed that back into the prompt (requires aggregation
+      tool similar to posting-time model)
 
 ## Housekeeping
 

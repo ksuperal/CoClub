@@ -836,20 +836,69 @@ def write_captions(
             "required": ["captions"],
         },
     }
+
+    # Enhanced platform-specific best practices
+    platform_guides = {
+        "instagram": (
+            "Instagram best practices:\n"
+            "- Hook: Start with an attention-grabbing first line (shows in feed preview)\n"
+            "- Length: 2-4 sentences (125-150 characters ideal for preview, max 300 for full caption)\n"
+            "- Tone: Story-driven, authentic, visually descriptive\n"
+            "- Emojis: Use 2-4 relevant emojis to break up text and add personality\n"
+            "- Call-to-action: Include clear CTA (save this, share with, tag someone, link in bio)\n"
+            "- Hashtags: 8-15 hashtags mixing popular (#10k-500k posts), niche (#1k-10k), and branded\n"
+            "- Strategy: Front-load value, create curiosity, encourage engagement\n"
+            "- Avoid: Hashtag spam (30+), generic CTAs ('check this out'), overly salesy language"
+        ),
+        "tiktok": (
+            "TikTok best practices:\n"
+            "- Hook: Question, bold statement, or curiosity gap in first 3 words\n"
+            "- Length: Very short (1-2 sentences, max 100 characters) - the video tells the story\n"
+            "- Tone: Conversational, casual, trend-aware, community-first (not corporate)\n"
+            "- Emojis: 1-3 emojis maximum, only if genuinely relevant\n"
+            "- Engagement: Pose questions, invite duets/stitches, spark conversation\n"
+            "- Hashtags: 3-5 hashtags - mix trending (#FYP, #ForYou) with niche category tags\n"
+            "- Strategy: Sound like a person, not a brand; create FOMO or relatability\n"
+            "- Avoid: Long captions, excessive hashtags, obvious ads, overly polished corporate speak"
+        ),
+        "facebook": (
+            "Facebook best practices:\n"
+            "- Hook: Compelling first sentence (mobile feed shows ~3 lines before 'See More')\n"
+            "- Length: Flexible - can go longer (3-5 sentences) if providing real value\n"
+            "- Tone: Conversational, community-building, informative, relatable\n"
+            "- Emojis: Use sparingly (1-2) for emphasis, not decoration\n"
+            "- Engagement: Ask questions, create discussion, encourage shares\n"
+            "- Hashtags: 1-3 hashtags maximum (Facebook doesn't prioritize hashtags like IG/TikTok)\n"
+            "- Strategy: Tell complete stories, provide context, build trust\n"
+            "- Avoid: Hashtag stuffing, clickbait, overly promotional language"
+        ),
+    }
+
+    # Build enhanced system prompt with platform-specific guidance
+    platform_guidance = "\n\n".join(
+        platform_guides.get(platform, f"{platform.title()}: Write platform-appropriate content")
+        for platform in platforms
+    )
+
     system = (
-        "You write platform-native captions and hashtags for a social ad. Instagram: medium length "
-        "— roughly 2-4 sentences, keyword-rich, SEO-style, NOT a long paragraph. TikTok: short, "
-        "punchy caption with high-velocity hashtags. Facebook: can be slightly longer and more "
-        "descriptive than Instagram. Match the brand's "
-        f"guideline and style, and the '{campaign_type}' campaign type. Be concretely specific to this "
-        "product/message — avoid generic filler like 'check this out'."
+        f"You write high-performing, platform-native captions and hashtags for social ads in a "
+        f"'{campaign_type}' campaign. Each platform has distinct best practices for what performs well "
+        f"algorithmically and what resonates with its audience.\n\n"
+        f"{platform_guidance}\n\n"
+        f"Core principles across all platforms:\n"
+        f"- Match the brand's voice, tone, and style from their guidelines\n"
+        f"- Be specific to this product/message angle - avoid generic filler\n"
+        f"- Front-load value - assume people scroll fast\n"
+        f"- Write for humans first, algorithms second\n"
+        f"- Every word should earn its place\n\n"
+        f"Generate ONE optimized caption + hashtag set per platform requested."
     )
     user_text = f"Brand profile: {brand_profile}\n\n"
     if product_profile:
         user_text += f"Product profile: {product_profile}\n\n"
     user_text += f"Message angle: {message_angle}\n\nPlatforms: {', '.join(platforms)}"
     messages = [{"role": "user", "content": user_text}]
-    result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool)
+    result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=2500)
     return result["captions"], tokens
 
 
