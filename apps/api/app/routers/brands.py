@@ -13,8 +13,8 @@ def create_brand(body: BrandCreate, user_id: str = Depends(get_current_user_id))
 
     client = get_service_client()
 
-    # Check if a brand with the same name already exists for this user
-    existing = client.table("brands").select("id").eq("user_id", user_id).ilike("name", body.name).execute()
+    # Check if a brand with the same name already exists for this user (excluding archived)
+    existing = client.table("brands").select("id").eq("user_id", user_id).eq("archived", False).ilike("name", body.name).execute()
     if existing.data:
         raise HTTPException(
             status_code=400,
@@ -35,7 +35,8 @@ def create_brand(body: BrandCreate, user_id: str = Depends(get_current_user_id))
 @router.get("", response_model=list[BrandOut])
 def list_brands(user_id: str = Depends(get_current_user_id)):
     client = get_service_client()
-    return client.table("brands").select("*").eq("user_id", user_id).order("created_at", desc=True).execute().data
+    # Only return non-archived brands in the library
+    return client.table("brands").select("*").eq("user_id", user_id).eq("archived", False).order("created_at", desc=True).execute().data
 
 
 @router.get("/{brand_id}", response_model=BrandOut)
@@ -62,9 +63,9 @@ def update_brand(brand_id: str, body: BrandCreate, user_id: str = Depends(get_cu
     if not result.data:
         raise HTTPException(status_code=404, detail="Brand not found")
 
-    # Check if name is being changed to a duplicate
+    # Check if name is being changed to a duplicate (excluding archived brands)
     if body.name.lower() != result.data[0]["name"].lower():
-        existing = client.table("brands").select("id").eq("user_id", user_id).ilike("name", body.name).execute()
+        existing = client.table("brands").select("id").eq("user_id", user_id).eq("archived", False).ilike("name", body.name).execute()
         if existing.data:
             raise HTTPException(
                 status_code=400,
@@ -83,24 +84,20 @@ def update_brand(brand_id: str, body: BrandCreate, user_id: str = Depends(get_cu
 
 @router.delete("/{brand_id}")
 def delete_brand(brand_id: str, user_id: str = Depends(get_current_user_id)):
-    """Delete a brand by ID"""
+    """Archive a brand by ID (soft delete - removes from library but preserves for existing campaigns)"""
     from fastapi import HTTPException, Response
 
     client = get_service_client()
 
     # Check if brand exists and belongs to user
-    result = client.table("brands").select("id").eq("id", brand_id).eq("user_id", user_id).execute()
+    result = client.table("brands").select("id, archived").eq("id", brand_id).eq("user_id", user_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Brand not found")
 
-    # Check if any campaigns reference this brand
-    campaigns = client.table("campaigns").select("id").eq("brand_id", brand_id).limit(1).execute()
-    if campaigns.data:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot delete brand that is used in existing campaigns"
-        )
+    if result.data[0].get("archived"):
+        raise HTTPException(status_code=400, detail="Brand is already archived")
 
-    # Delete the brand
-    client.table("brands").delete().eq("id", brand_id).eq("user_id", user_id).execute()
+    # Archive the brand (soft delete) instead of hard delete
+    # This keeps campaigns that reference this brand working
+    client.table("brands").update({"archived": True}).eq("id", brand_id).eq("user_id", user_id).execute()
     return Response(status_code=204)

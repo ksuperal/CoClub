@@ -18,6 +18,7 @@ export default function BrandsPage() {
   const router = useRouter();
   const [brands, setBrands] = useState<Brand[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -29,6 +30,25 @@ export default function BrandsPage() {
   async function handleSignOut() {
     await supabase.auth.signOut();
     router.replace("/login");
+  }
+
+  async function handleDelete(brandId: string, brandName: string) {
+    if (!confirm(`Remove "${brandName}" from your brand library?\n\nThe brand will be hidden from the library but campaigns using it will continue to work.`)) {
+      return;
+    }
+
+    setDeleting(brandId);
+    setError(null);
+
+    try {
+      await api.deleteBrand(brandId);
+      // Remove from list
+      setBrands((prev) => prev?.filter((b) => b.id !== brandId) ?? null);
+    } catch (err: any) {
+      setError(err.message ?? String(err));
+    } finally {
+      setDeleting(null);
+    }
   }
 
   return (
@@ -109,6 +129,13 @@ export default function BrandsPage() {
                 >
                   Edit
                 </Link>
+                <button
+                  onClick={() => handleDelete(brand.id, brand.name)}
+                  disabled={deleting === brand.id}
+                  className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+                >
+                  {deleting === brand.id ? "Removing..." : "Remove"}
+                </button>
               </div>
               <span className="text-xs text-neutral-400">
                 {new Date(brand.created_at).toLocaleDateString()}
