@@ -69,6 +69,12 @@ export default function IntakePage() {
 
   // Product section
   const [includeProduct, setIncludeProduct] = useState(true);
+  const [productMode, setProductMode] = useState<"select" | "create">("select");
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [products, setProducts] = useState<any[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+
+  // New product fields (only if creating new)
   const [productName, setProductName] = useState("");
   const [productFiles, setProductFiles] = useState<File[]>([]);
   const [productDescription, setProductDescription] = useState("");
@@ -141,11 +147,40 @@ export default function IntakePage() {
       });
   }, [preSelectedBrandId]);
 
+  // Load products on mount (filtered by selected brand when available)
+  useEffect(() => {
+    // Only load products when includeProduct is checked
+    if (!includeProduct) {
+      setLoadingProducts(false);
+      return;
+    }
+
+    const brandIdToUse = brandMode === "select" ? selectedBrandId : null;
+
+    api
+      .listProducts(brandIdToUse || undefined)
+      .then((data) => {
+        setProducts(data);
+        setLoadingProducts(false);
+        // If we have products, default to select mode, otherwise create mode
+        if (data.length > 0) {
+          setProductMode("select");
+        } else {
+          setProductMode("create");
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load products:", err);
+        setLoadingProducts(false);
+        setProductMode("create"); // Fallback to create if loading fails
+      });
+  }, [includeProduct, selectedBrandId, brandMode]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    if (includeProduct && productFiles.length === 0) {
+    if (includeProduct && productMode === "create" && productFiles.length === 0) {
       setError(
         "At least one product photo/file is required — or uncheck 'This campaign is about a specific product'."
       );
@@ -178,20 +213,24 @@ export default function IntakePage() {
         return;
       }
 
-      // Create product if needed
+      // Create or select product if needed
       let productId: string | null = null;
-      if (includeProduct && productFiles.length > 0) {
-        setStep(`Uploading ${productFiles.length} product file(s)…`);
-        const productAssetPaths = await api.uploadProductAssets(productFiles);
+      if (includeProduct) {
+        if (productMode === "select") {
+          productId = selectedProductId;
+        } else if (productMode === "create" && productFiles.length > 0) {
+          setStep(`Uploading ${productFiles.length} product file(s)…`);
+          const productAssetPaths = await api.uploadProductAssets(productFiles);
 
-        setStep("Extracting product profile…");
-        const product = await api.createProduct({
-          brand_id: brandId,
-          name: productName,
-          description_text: productDescription || undefined,
-          asset_paths: productAssetPaths,
-        });
-        productId = product.id;
+          setStep("Extracting product profile…");
+          const product = await api.createProduct({
+            brand_id: brandId,
+            name: productName,
+            description_text: productDescription || undefined,
+            asset_paths: productAssetPaths,
+          });
+          productId = product.id;
+        }
       }
 
       // Create campaign
@@ -346,42 +385,102 @@ export default function IntakePage() {
 
           {includeProduct && (
             <>
-              <input
-                placeholder="Product name"
-                required={includeProduct}
-                value={productName}
-                onChange={(e) => setProductName(e.target.value)}
-                className="border rounded px-3 py-2"
-              />
-              <label className="text-sm text-neutral-600">
-                Product photo/file(s) — required, this is what the AI uses as ground truth for what
-                the product actually looks like
-                <input
-                  type="file"
-                  multiple
-                  required={includeProduct && productFiles.length === 0}
-                  accept={ACCEPTED_FILE_TYPES}
-                  onChange={(e) => {
-                    const warning = appendFiles(e, productFiles, setProductFiles, MAX_PRODUCT_FILES);
-                    setError(warning);
-                  }}
-                  className="block mt-1"
-                />
-                <span className="block text-xs text-neutral-400 mt-1">
-                  {ACCEPTED_FILE_HINT} Up to {MAX_PRODUCT_FILES} files.
-                </span>
-                <FileListPreview
-                  files={productFiles}
-                  onRemove={(i) => setProductFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                />
-              </label>
-              <textarea
-                placeholder="Product description (optional — supplementary to the photo)"
-                rows={3}
-                value={productDescription}
-                onChange={(e) => setProductDescription(e.target.value)}
-                className="border rounded px-3 py-2"
-              />
+              {loadingProducts ? (
+                <p className="text-sm text-neutral-500">Loading products…</p>
+              ) : (
+                <>
+                  {products.length > 0 && (
+                    <div className="inline-flex rounded-md border border-neutral-300 mb-2 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setProductMode("select")}
+                        className={`px-4 py-2 text-sm transition-colors ${
+                          productMode === "select"
+                            ? "bg-black text-white"
+                            : "bg-white text-neutral-700 hover:bg-neutral-50"
+                        }`}
+                      >
+                        Select existing product
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProductMode("create")}
+                        className={`px-4 py-2 text-sm border-l border-neutral-300 transition-colors ${
+                          productMode === "create"
+                            ? "bg-black text-white"
+                            : "bg-white text-neutral-700 hover:bg-neutral-50"
+                        }`}
+                      >
+                        Create new product
+                      </button>
+                    </div>
+                  )}
+
+                  {productMode === "select" ? (
+                    <>
+                      <select
+                        value={selectedProductId}
+                        onChange={(e) => setSelectedProductId(e.target.value)}
+                        required
+                        className="border rounded px-3 py-2"
+                      >
+                        <option value="">Select a product…</option>
+                        {products.map((product) => (
+                          <option key={product.id} value={product.id}>
+                            {product.name}
+                            {product.description_text ? ` — ${product.description_text.slice(0, 50)}${product.description_text.length > 50 ? '...' : ''}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="flex items-center gap-2 text-sm text-neutral-500">
+                        <span>Don't see your product?</span>
+                        <Link href="/products/new" className="text-blue-600 hover:underline">
+                          Add it to your library →
+                        </Link>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        placeholder="Product name"
+                        required={includeProduct}
+                        value={productName}
+                        onChange={(e) => setProductName(e.target.value)}
+                        className="border rounded px-3 py-2"
+                      />
+                      <label className="text-sm text-neutral-600">
+                        Product photo/file(s) — required, this is what the AI uses as ground truth for what
+                        the product actually looks like
+                        <input
+                          type="file"
+                          multiple
+                          required={includeProduct && productFiles.length === 0}
+                          accept={ACCEPTED_FILE_TYPES}
+                          onChange={(e) => {
+                            const warning = appendFiles(e, productFiles, setProductFiles, MAX_PRODUCT_FILES);
+                            setError(warning);
+                          }}
+                          className="block mt-1"
+                        />
+                        <span className="block text-xs text-neutral-400 mt-1">
+                          {ACCEPTED_FILE_HINT} Up to {MAX_PRODUCT_FILES} files.
+                        </span>
+                        <FileListPreview
+                          files={productFiles}
+                          onRemove={(i) => setProductFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                        />
+                      </label>
+                      <textarea
+                        placeholder="Product description (optional — supplementary to the photo)"
+                        rows={3}
+                        value={productDescription}
+                        onChange={(e) => setProductDescription(e.target.value)}
+                        className="border rounded px-3 py-2"
+                      />
+                    </>
+                  )}
+                </>
+              )}
             </>
           )}
         </fieldset>

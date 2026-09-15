@@ -52,7 +52,7 @@ def run_intake(
     # tool call against a live-fetched real voice list), and reused across every
     # campaign this brand ever runs rather than re-decided per ad. Non-fatal if
     # either step fails: elevenlabs_tts.generate_voiceover falls back to a
-    # sensible default voice when brands.voice_id is null/unset.
+    # sensible default voice when brands.brand_voice_id is null/unset.
     voice_id = None
     if get_settings().elevenlabs_enabled:
         try:
@@ -68,7 +68,7 @@ def run_intake(
         "guideline_raw_text": guideline_raw_text,
         "guideline_assets": guideline_asset_paths,
         "extracted_profile": profile,
-        "voice_id": voice_id,
+        "brand_voice_id": voice_id,  # Use brand library field (migration 0012)
     }
     if description:
         brand_data["description"] = description

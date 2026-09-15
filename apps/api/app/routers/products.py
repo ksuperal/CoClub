@@ -31,7 +31,59 @@ def create_product(body: ProductCreate, user_id: str = Depends(get_current_user_
 @router.get("", response_model=list[ProductOut])
 def list_products(brand_id: str | None = None, user_id: str = Depends(get_current_user_id)):
     client = get_service_client()
-    query = client.table("products").select("*").eq("user_id", user_id)
+    # Only return non-archived products in the library
+    query = client.table("products").select("*").eq("user_id", user_id).eq("archived", False)
     if brand_id:
         query = query.eq("brand_id", brand_id)
     return query.order("created_at", desc=True).execute().data
+
+
+@router.get("/{product_id}", response_model=ProductOut)
+def get_product(product_id: str, user_id: str = Depends(get_current_user_id)):
+    """Get a single product by ID"""
+    client = get_service_client()
+    result = client.table("products").select("*").eq("id", product_id).eq("user_id", user_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return result.data[0]
+
+
+@router.patch("/{product_id}", response_model=ProductOut)
+def update_product(product_id: str, body: ProductCreate, user_id: str = Depends(get_current_user_id)):
+    """Update a product by ID"""
+    client = get_service_client()
+
+    # Check if product exists and belongs to user
+    result = client.table("products").select("*").eq("id", product_id).eq("user_id", user_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # Update the product (only editable fields)
+    update_data = {
+        "name": body.name,
+        "description_text": body.description_text,
+    }
+
+    updated = client.table("products").update(update_data).eq("id", product_id).eq("user_id", user_id).execute()
+    return updated.data[0]
+
+
+@router.delete("/{product_id}")
+def delete_product(product_id: str, user_id: str = Depends(get_current_user_id)):
+    """Archive a product by ID (soft delete - removes from library but preserves for existing campaigns)"""
+    from fastapi import Response
+
+    client = get_service_client()
+
+    # Check if product exists and belongs to user
+    result = client.table("products").select("id, archived").eq("id", product_id).eq("user_id", user_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    if result.data[0].get("archived"):
+        raise HTTPException(status_code=400, detail="Product is already archived")
+
+    # Archive the product (soft delete) instead of hard delete
+    # This keeps campaigns that reference this product working
+    client.table("products").update({"archived": True}).eq("id", product_id).eq("user_id", user_id).execute()
+    return Response(status_code=204)

@@ -30,8 +30,8 @@ class BrandOut(BaseModel):
     name: str
     description: str | None = None
     extracted_profile: dict[str, Any] | None
-    voice_id: str | None = None  # defaults until the 0007 migration is applied
-    brand_voice_id: str | None = None  # new field from 0012 migration
+    voice_id: str | None = None  # DEPRECATED: Use brand_voice_id instead (kept for backward compatibility)
+    brand_voice_id: str | None = None  # ElevenLabs voice ID for this brand (migration 0012)
     created_at: datetime
 
 

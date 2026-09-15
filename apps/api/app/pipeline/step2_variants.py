@@ -74,9 +74,9 @@ def _generate_and_mux_audio(
         else:
             try:
                 brand = (
-                    client.table("brands").select("voice_id").eq("id", campaign["brand_id"]).single().execute().data
+                    client.table("brands").select("brand_voice_id").eq("id", campaign["brand_id"]).single().execute().data
                 )
-                voice_id = (brand or {}).get("voice_id")
+                voice_id = (brand or {}).get("brand_voice_id")
                 voiceover_bytes = elevenlabs_tts.generate_voiceover(variant["voiceover_script"], voice_id=voice_id)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Voiceover generation failed for variant %s.", variant["id"])

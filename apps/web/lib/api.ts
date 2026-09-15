@@ -79,7 +79,14 @@ export const api = {
     asset_paths: string[];
   }) => request<any>("/products", { method: "POST", body: JSON.stringify(body) }),
 
-  listProducts: (brand_id: string) => request<any[]>(`/products?brand_id=${brand_id}`),
+  listProducts: (brand_id?: string) => request<any[]>(`/products${brand_id ? `?brand_id=${brand_id}` : ""}`),
+
+  getProduct: (id: string) => request<any>(`/products/${id}`),
+
+  updateProduct: (id: string, body: { name: string; description_text?: string; brand_id: string; asset_paths: string[] }) =>
+    request<any>(`/products/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+
+  deleteProduct: (id: string) => request(`/products/${id}`, { method: "DELETE" }),
 
   createCampaign: (body: {
     brand_id: string;
