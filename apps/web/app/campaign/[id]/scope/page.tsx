@@ -38,6 +38,7 @@ export default function ScopePage() {
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -124,6 +125,18 @@ export default function ScopePage() {
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
+  function toggleItem(index: number) {
+    setExpandedItems((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  }
+
   async function handleConfirm() {
     setConfirming(true);
     setError(null);
@@ -185,27 +198,41 @@ export default function ScopePage() {
             Plan ready — {plan.items.reduce((sum, item) => sum + item.count, 0)} piece(s) total
           </p>
           <div className="flex flex-col gap-2 mb-3">
-            {plan.items.map((item, i) => (
-              <div key={i} className="bg-white border border-blue-100 rounded p-2">
-                <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                  <span className="text-xs font-semibold bg-blue-100 text-blue-700 rounded px-1.5 py-0.5">
-                    {item.count}× {item.media_type}
-                  </span>
-                  {item.target_platforms.map((p) => (
-                    <span key={p} className="text-xs text-neutral-600 border rounded px-1.5 py-0.5">
-                      {PLATFORM_LABELS[p] ?? p}
-                    </span>
-                  ))}
-                  {item.include_voiceover && (
-                    <span className="text-xs text-neutral-500 border rounded px-1.5 py-0.5">voiceover</span>
-                  )}
-                  {item.include_music && (
-                    <span className="text-xs text-neutral-500 border rounded px-1.5 py-0.5">music</span>
+            {plan.items.map((item, i) => {
+              const isExpanded = expandedItems.has(i);
+              return (
+                <div key={i} className="bg-white border border-blue-100 rounded">
+                  <button
+                    type="button"
+                    onClick={() => toggleItem(i)}
+                    className="w-full p-2 flex items-center justify-between hover:bg-neutral-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-semibold bg-blue-100 text-blue-700 rounded px-1.5 py-0.5">
+                        {item.count}× {item.media_type}
+                      </span>
+                      {item.target_platforms.map((p) => (
+                        <span key={p} className="text-xs text-neutral-600 border rounded px-1.5 py-0.5">
+                          {PLATFORM_LABELS[p] ?? p}
+                        </span>
+                      ))}
+                      {item.include_voiceover && (
+                        <span className="text-xs text-neutral-500 border rounded px-1.5 py-0.5">voiceover</span>
+                      )}
+                      {item.include_music && (
+                        <span className="text-xs text-neutral-500 border rounded px-1.5 py-0.5">music</span>
+                      )}
+                    </div>
+                    <span className="text-neutral-400 text-sm">{isExpanded ? '−' : '+'}</span>
+                  </button>
+                  {isExpanded && (
+                    <div className="px-2 pb-2 border-t border-neutral-100">
+                      <p className="text-neutral-700 text-sm mt-2">{item.concept}</p>
+                    </div>
                   )}
                 </div>
-                <p className="text-neutral-700">{item.concept}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="flex items-center gap-2">
             <button

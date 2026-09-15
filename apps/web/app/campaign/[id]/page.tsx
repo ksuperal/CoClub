@@ -58,7 +58,7 @@ export default function CampaignStatusPage() {
   const [refreshingMetrics, setRefreshingMetrics] = useState(false);
   const [variantFilter, setVariantFilter] = useState<"approved" | "all">("approved");
 
-  async function refresh() {
+  async function refresh(showErrors = false) {
     try {
       const c = await api.getCampaign(id);
       setCampaign(c);
@@ -72,14 +72,22 @@ export default function CampaignStatusPage() {
       setCaptions(cap);
       setReport(r);
       setMetrics(m);
+      // Clear errors on successful refresh
+      if (showErrors) {
+        setError(null);
+      }
     } catch (err: any) {
-      setError(err.message ?? String(err));
+      // Only show errors if explicitly requested (user-initiated actions)
+      if (showErrors) {
+        setError(err.message ?? String(err));
+      }
+      // Silently ignore polling errors when data isn't ready yet
     }
   }
 
   useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, 5000);
+    refresh(true); // Show errors on initial load
+    const interval = setInterval(refresh, 5000); // Silent polling
     return () => clearInterval(interval);
   }, [id]);
 
