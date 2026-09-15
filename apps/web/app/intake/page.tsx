@@ -226,14 +226,14 @@ export default function IntakePage() {
           ) : (
             <>
               {brands.length > 0 && (
-                <div className="flex gap-3 mb-2">
+                <div className="inline-flex rounded-md border border-neutral-300 mb-2 overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setBrandMode("select")}
-                    className={`px-3 py-1.5 text-sm rounded border ${
+                    className={`px-4 py-2 text-sm transition-colors ${
                       brandMode === "select"
-                        ? "bg-black text-white border-black"
-                        : "border-neutral-300 hover:bg-neutral-50"
+                        ? "bg-black text-white"
+                        : "bg-white text-neutral-700 hover:bg-neutral-50"
                     }`}
                   >
                     Select existing brand
@@ -241,10 +241,10 @@ export default function IntakePage() {
                   <button
                     type="button"
                     onClick={() => setBrandMode("create")}
-                    className={`px-3 py-1.5 text-sm rounded border ${
+                    className={`px-4 py-2 text-sm border-l border-neutral-300 transition-colors ${
                       brandMode === "create"
-                        ? "bg-black text-white border-black"
-                        : "border-neutral-300 hover:bg-neutral-50"
+                        ? "bg-black text-white"
+                        : "bg-white text-neutral-700 hover:bg-neutral-50"
                     }`}
                   >
                     Create new brand

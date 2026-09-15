@@ -56,6 +56,8 @@ async function uploadFiles(endpoint: string, files: File[]): Promise<string[]> {
 export const api = {
   uploadBrandAssets: (files: File[]) => uploadFiles("/assets/brand-guideline", files),
 
+  uploadMoodboardAssets: (files: File[]) => uploadFiles("/assets/moodboard", files),
+
   createBrand: (body: { name: string; description?: string; guideline_raw_text: string; guideline_asset_paths: string[] }) =>
     request<any>("/brands", { method: "POST", body: JSON.stringify(body) }),
 
@@ -90,11 +92,14 @@ export const api = {
 
   getCampaign: (id: string) => request<any>(`/campaigns/${id}`),
 
-  sendScopeMessage: (id: string, text: string) =>
+  sendScopeMessage: (id: string, text: string, image_urls?: string[]) =>
     request<
       | { kind: "question"; text: string }
       | { kind: "plan"; items: any[]; summary: string }
-    >(`/campaigns/${id}/scope/messages`, { method: "POST", body: JSON.stringify({ text }) }),
+    >(`/campaigns/${id}/scope/messages`, {
+      method: "POST",
+      body: JSON.stringify({ text, image_urls }),
+    }),
 
   confirmScope: (id: string) => request<any[]>(`/campaigns/${id}/scope/confirm`, { method: "POST" }),
 

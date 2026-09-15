@@ -120,8 +120,8 @@ def get_campaign(campaign_id: str, user_id: str = Depends(get_current_user_id)):
 
 
 @router.post("/{campaign_id}/scope/messages")
-def scope_message(campaign_id: str, body: dict[str, str], user_id: str = Depends(get_current_user_id)):
-    """One turn of the campaign-scoping conversation — body {"text": "..."}. Before
+def scope_message(campaign_id: str, body: dict[str, Any], user_id: str = Depends(get_current_user_id)):
+    """One turn of the campaign-scoping conversation — body {"text": "...", "image_urls": [...] (optional)}. Before
     any ideation happens, the user describes the campaign's SIZE in their own words
     ("IG 9 posts, TikTok 2 short videos") instead of picking variant_count/media_type
     from a form; Claude either asks a follow-up or finalizes a concrete content plan.
@@ -138,8 +138,9 @@ def scope_message(campaign_id: str, body: dict[str, str], user_id: str = Depends
             status_code=409, detail=f"Campaign is '{campaign['status']}', expected 'draft' or 'awaiting_scope'"
         )
     text = (body.get("text") or "").strip()
-    if not text:
-        raise HTTPException(status_code=422, detail="text is required")
+    image_urls = body.get("image_urls") or []
+    if not text and not image_urls:
+        raise HTTPException(status_code=422, detail="text or image_urls is required")
 
     brand = client.table("brands").select("extracted_profile").eq("id", campaign["brand_id"]).single().execute()
     brand_profile = brand.data["extracted_profile"] or {}
@@ -161,7 +162,21 @@ def scope_message(campaign_id: str, body: dict[str, str], user_id: str = Depends
     ]
 
     conversation = list(campaign.get("scope_conversation") or [])
-    conversation.append({"role": "user", "text": text})
+    user_message = {"role": "user", "text": text}
+
+    # Convert storage paths to public URLs for Claude vision API
+    public_image_urls = []
+    if image_urls:
+        for path in image_urls:
+            public_url = client.storage.from_("brand-assets").get_public_url(path)
+            public_image_urls.append(public_url)
+        user_message["image_urls"] = public_image_urls
+
+    conversation.append(user_message)
+
+    # Store moodboard assets in campaign (storage paths, not public URLs)
+    existing_moodboard = campaign.get("moodboard_assets") or []
+    new_moodboard = list(set(existing_moodboard + image_urls))
 
     result, tokens = llm.continue_campaign_scoping(
         brand_profile=brand_profile,
@@ -173,7 +188,7 @@ def scope_message(campaign_id: str, body: dict[str, str], user_id: str = Depends
     )
     usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=tokens)
 
-    update: dict[str, Any] = {"status": "awaiting_scope"}
+    update: dict[str, Any] = {"status": "awaiting_scope", "moodboard_assets": new_moodboard}
     if result["kind"] == "plan":
         conversation.append({"role": "assistant", "text": result["summary"]})
         update["content_plan"] = result["items"]

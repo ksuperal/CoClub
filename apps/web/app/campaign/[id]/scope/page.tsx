@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
-type ChatMessage = { role: "user" | "assistant"; text: string };
+type ChatMessage = {
+  role: "user" | "assistant";
+  text: string;
+  image_urls?: string[];
+};
 
 type PlanItem = {
   media_type: string;
@@ -29,11 +33,13 @@ export default function ScopePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [plan, setPlan] = useState<{ items: PlanItem[]; summary: string } | null>(null);
   const [input, setInput] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -45,6 +51,7 @@ export default function ScopePage() {
           const existing: ChatMessage[] = (campaign.scope_conversation ?? []).map((t: any) => ({
             role: t.role,
             text: t.text,
+            image_urls: t.image_urls,
           }));
           setMessages(existing.length > 0 ? existing : [{ role: "assistant", text: OPENING_QUESTION }]);
           if (campaign.content_plan) {
@@ -71,15 +78,26 @@ export default function ScopePage() {
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || sending) return;
+    if ((!text && selectedFiles.length === 0) || sending) return;
 
-    setMessages((prev) => [...prev, { role: "user", text }]);
-    setInput("");
     setSending(true);
     setError(null);
     setPlan(null);
+
     try {
-      const res = await api.sendScopeMessage(id, text);
+      // Upload images first if any
+      let image_urls: string[] | undefined;
+      if (selectedFiles.length > 0) {
+        image_urls = await api.uploadMoodboardAssets(selectedFiles);
+      }
+
+      // Add user message to UI (with image URLs for display)
+      setMessages((prev) => [...prev, { role: "user", text, image_urls }]);
+      setInput("");
+      setSelectedFiles([]);
+
+      // Send message to backend
+      const res = await api.sendScopeMessage(id, text, image_urls);
       if (res.kind === "plan") {
         setMessages((prev) => [...prev, { role: "assistant", text: res.summary }]);
         setPlan({ items: res.items, summary: res.summary });
@@ -91,6 +109,19 @@ export default function ScopePage() {
     } finally {
       setSending(false);
     }
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    setSelectedFiles((prev) => [...prev, ...files]);
+    // Reset input so same file can be selected again if removed
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  function removeFile(index: number) {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function handleConfirm() {
@@ -122,11 +153,27 @@ export default function ScopePage() {
         {messages.map((m, i) => (
           <div
             key={i}
-            className={`max-w-[85%] rounded px-3 py-2 text-sm whitespace-pre-wrap ${
+            className={`max-w-[85%] rounded px-3 py-2 text-sm ${
               m.role === "user" ? "self-end bg-black text-white" : "self-start bg-neutral-100"
             }`}
           >
-            {m.text}
+            {m.image_urls && m.image_urls.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {m.image_urls.map((url, idx) => (
+                  <img
+                    key={idx}
+                    src={url}
+                    alt={`Reference ${idx + 1}`}
+                    className="max-w-[120px] max-h-[120px] object-cover rounded border"
+                    onError={(e) => {
+                      console.error('Failed to load image:', url);
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            {m.text && <div className="whitespace-pre-wrap">{m.text}</div>}
           </div>
         ))}
         {sending && <p className="self-start text-sm text-neutral-400">Thinking…</p>}
@@ -177,21 +224,68 @@ export default function ScopePage() {
 
       {error && <p className="text-red-600 text-sm mb-2">{error}</p>}
 
-      <form onSubmit={handleSend} className="flex gap-2 mb-4">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a message…"
-          className="flex-1 border rounded px-3 py-2 text-sm"
-          disabled={sending || confirming}
-        />
-        <button
-          type="submit"
-          disabled={!input.trim() || sending || confirming}
-          className="bg-black text-white rounded px-4 py-2 text-sm disabled:opacity-50"
-        >
-          Send
-        </button>
+      {selectedFiles.length > 0 && (
+        <div className="mb-3">
+          <p className="text-xs text-neutral-500 mb-2">Moodboard images ({selectedFiles.length})</p>
+          <div className="flex flex-wrap gap-2">
+            {selectedFiles.map((file, i) => (
+              <div key={i} className="relative group">
+                <img
+                  src={URL.createObjectURL(file)}
+                  alt={file.name}
+                  className="w-20 h-20 object-cover rounded border"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeFile(i)}
+                  className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-5 h-5 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                  disabled={sending}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <form onSubmit={handleSend} className="flex flex-col gap-2 mb-4">
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Describe your campaign or upload moodboard images…"
+            className="flex-1 border rounded px-3 py-2 text-sm"
+            disabled={sending || confirming}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending || confirming}
+            className="border rounded px-3 py-2 text-sm disabled:opacity-50 hover:bg-neutral-50"
+            title="Add moodboard images"
+          >
+            📎
+          </button>
+          <button
+            type="submit"
+            disabled={(!input.trim() && selectedFiles.length === 0) || sending || confirming}
+            className="bg-black text-white rounded px-4 py-2 text-sm disabled:opacity-50"
+          >
+            Send
+          </button>
+        </div>
+        <p className="text-xs text-neutral-400">
+          Upload visual references (moodboard, style inspiration, competitor examples) to help guide the creative direction
+        </p>
       </form>
     </div>
   );

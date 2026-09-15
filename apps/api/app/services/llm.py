@@ -362,13 +362,14 @@ def continue_campaign_scoping(
     campaign_type: str,
     brief: str,
     connected_platforms: list[str],
-    conversation: list[dict[str, str]],
+    conversation: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], int]:
-    """`conversation` is [{role: 'user'|'assistant', text}, ...], ending with the
-    user's latest reply. Returns (result, tokens) where result is either
-    {"kind": "question", "text": ...} — show this to the user and wait for
-    another reply — or {"kind": "plan", "items": [...], "summary": ...} — the
-    plan is ready, show `summary` for confirmation before calling ideate_variants."""
+    """`conversation` is [{role: 'user'|'assistant', text, image_urls?: [...]}, ...],
+    ending with the user's latest reply. User messages can optionally include image_urls
+    (Supabase storage paths for moodboard references). Returns (result, tokens) where
+    result is either {"kind": "question", "text": ...} — show this to the user and wait
+    for another reply — or {"kind": "plan", "items": [...], "summary": ...} — the plan
+    is ready, show `summary` for confirmation before calling ideate_variants."""
     finalize_tool = {
         "name": "finalize_campaign_plan",
         "description": "Call this once you have enough information to propose a concrete content plan "
@@ -433,6 +434,35 @@ def continue_campaign_scoping(
         "platform(s), audio needs, and a real shot/scene concept for each group. Every plan item needs "
         "a concrete concept, not just a format — 'a product photo' is not a concept, 'product reveal on "
         "a clean studio background' is.\n\n"
+        "MOODBOARD ANALYSIS PROTOCOL: When the user uploads reference images, treat them as the visual "
+        "DNA of the campaign — every generated piece must capture this exact vibe. Analyze each image "
+        "deeply across these dimensions:\n\n"
+        "1. COLOR PALETTE: Extract specific colors (name them: 'dusty rose', 'sage green', 'warm beige', "
+        "not just 'pink/green/tan'). Note dominant vs accent colors, color temperature (warm/cool), "
+        "saturation level (muted/vibrant), and any gradients or color transitions.\n\n"
+        "2. COMPOSITION & LAYOUT: Identify the visual structure — centered/asymmetric, rule of thirds, "
+        "geometric patterns, negative space usage, layering depth, subject placement, cropping style "
+        "(tight/spacious), and any signature framing techniques.\n\n"
+        "3. MOOD & EMOTIONAL TONE: Describe the feeling precisely — not just 'happy' but 'playfully "
+        "energetic', 'quietly sophisticated', 'raw and edgy', 'warmly nostalgic', 'sleek and futuristic'. "
+        "What emotion should the viewer feel?\n\n"
+        "4. LIGHTING & ATMOSPHERE: Natural vs studio, soft/harsh shadows, golden hour glow, dramatic "
+        "contrast, high-key brightness, moody low-key, backlit silhouettes, diffused light, etc.\n\n"
+        "5. TEXTURES & MATERIALS: Identify tactile qualities — smooth/rough, matte/glossy, organic/synthetic, "
+        "fabric types, surface finishes, grain, transparency, layering of materials.\n\n"
+        "6. VISUAL STYLE CATEGORY: Pin down the aesthetic — minimal/maximalist, vintage/modern, brutalist, "
+        "clean/grunge, editorial, lifestyle, product-focused, flat lay, hand-held candid, cinematic, etc.\n\n"
+        "7. TYPOGRAPHY (if present): Font style (serif/sans/script/display), weight (light/bold), spacing, "
+        "text placement, integration with imagery, readability vs decorative.\n\n"
+        "8. SUBJECT MATTER & THEMES: What's shown — people/products/scenes, lifestyle context, cultural "
+        "references, symbolic elements, recurring motifs.\n\n"
+        "9. TECHNICAL EXECUTION: Photography angle (overhead/eye-level/low), depth of field (blurred bg vs "
+        "sharp throughout), movement (static/dynamic), editing style (film grain, high contrast, pastel filter).\n\n"
+        "After analyzing, EXPLICITLY STATE the extracted visual DNA in your next response (e.g. 'I see a "
+        "muted earth-tone palette with warm terracotta and sage, soft natural lighting, minimal compositions "
+        "with lots of negative space, and a calm, grounded mood'). Then propose campaign concepts that "
+        "authentically embody these specific elements — the generated content must FEEL like it belongs in "
+        "that moodboard. If concepts drift from the moodboard vibe, you've failed.\n\n"
         "Audio rules for video pieces, which you don't decide freely: background music is ALWAYS added "
         "automatically to every video — never ask about it, never mention it as a choice, it's not "
         "optional. Voiceover is the opposite: it's genuinely optional, and you must explicitly ASK the "
@@ -464,7 +494,22 @@ def continue_campaign_scoping(
         + (f"\nProduct profile: {product_profile}" if product_profile else "")
         + f"\nConnected platforms: {', '.join(connected_platforms) if connected_platforms else 'none'}"
     )
-    messages = [{"role": turn["role"], "content": turn["text"]} for turn in conversation]
+
+    # Format messages for Claude API, converting image_urls to vision content blocks
+    messages = []
+    for turn in conversation:
+        if turn.get("image_urls"):
+            # Multimodal message: text + images
+            content: list[dict[str, Any]] = []
+            if turn.get("text"):
+                content.append({"type": "text", "text": turn["text"]})
+            for url in turn["image_urls"]:
+                content.append({"type": "image", "source": {"type": "url", "url": url}})
+            messages.append({"role": turn["role"], "content": content})
+        else:
+            # Text-only message
+            messages.append({"role": turn["role"], "content": turn["text"]})
+
     text, tool_input, tokens = _auto_tool_call(
         system=system, messages=messages, tools=[finalize_tool, web_search_tool], max_tokens=2000
     )
@@ -554,8 +599,16 @@ def write_image_prompt(
     system = (
         "You write image-generation prompts for social ad creative. The prompt must faithfully render "
         "the brand's color palette, mascot (if any), and visual style, and fit a "
-        f"'{campaign_type}' campaign. Be visually specific — composition, subject, lighting, "
-        f"color palette — not just a restatement of the message angle. {reference_instruction}"
+        f"'{campaign_type}' campaign.\n\n"
+        "CRITICAL: If the message angle includes specific visual details (color names like 'dusty rose' "
+        "or 'sage green', lighting descriptions like 'soft natural light' or 'golden hour', composition "
+        "styles like 'minimal with negative space' or 'centered flat lay', mood descriptors like 'warmly "
+        "nostalgic' or 'sleek and modern'), these are NOT arbitrary — they come from moodboard analysis "
+        "and define the campaign's visual DNA. Your image prompt MUST preserve every specific visual "
+        "element mentioned in the angle. Don't paraphrase 'dusty rose' as 'pink' or 'soft natural light' "
+        "as 'bright'. Every detail is intentional.\n\n"
+        "Be visually specific — composition, subject, lighting, color palette (use the exact color names "
+        f"if provided) — not just a restatement of the message angle. {reference_instruction}"
     )
     user_content = f"Brand profile: {brand_profile}\n\nMessage angle: {angle}"
     if product_profile:

@@ -31,3 +31,10 @@ async def upload_product_asset(file: UploadFile, user_id: str = Depends(get_curr
     """Uploads one product photo/file, returns its storage path for use in
     POST /products { asset_paths: [...] }."""
     return await _upload("product-assets", file, user_id)
+
+
+@router.post("/moodboard")
+async def upload_moodboard_asset(file: UploadFile, user_id: str = Depends(get_current_user_id)):
+    """Uploads one moodboard/reference image, returns its storage path for use in
+    campaign scoping conversation."""
+    return await _upload("brand-assets", file, user_id)
