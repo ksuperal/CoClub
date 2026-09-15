@@ -11,7 +11,7 @@ type Product = {
   brand_id: string;
   name: string;
   description_text: string | null;
-  asset_paths: string[];
+  asset_paths?: string[];
   extracted_profile: any;
   created_at: string;
 };
@@ -115,7 +115,7 @@ export default function ProductsPage() {
             key={product.id}
             className="border rounded p-4 hover:bg-neutral-50 transition-colors"
           >
-            {product.asset_paths[0] && (
+            {product.asset_paths?.[0] && (
               <div className="mb-3">
                 <img
                   src={supabase.storage.from("product-assets").getPublicUrl(product.asset_paths[0]).data.publicUrl}

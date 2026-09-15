@@ -35,6 +35,12 @@ class BrandOut(BaseModel):
     created_at: datetime
 
 
+class BrandUpdate(BaseModel):
+    name: str
+    description: str | None = None
+    brand_voice_id: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Products — file upload is required (the primary source), text is optional
 # ---------------------------------------------------------------------------

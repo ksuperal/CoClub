@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends
 
+from ..config import get_settings
 from ..db import get_current_user_id, get_service_client
-from ..models.schemas import BrandCreate, BrandOut
+from ..models.schemas import BrandCreate, BrandOut, BrandUpdate
 from ..pipeline.step1_intake import run_intake
+from ..services import elevenlabs_tts
 
 router = APIRouter(prefix="/brands", tags=["brands"])
 
@@ -52,7 +54,7 @@ def get_brand(brand_id: str, user_id: str = Depends(get_current_user_id)):
 
 
 @router.patch("/{brand_id}", response_model=BrandOut)
-def update_brand(brand_id: str, body: BrandCreate, user_id: str = Depends(get_current_user_id)):
+def update_brand(brand_id: str, body: BrandUpdate, user_id: str = Depends(get_current_user_id)):
     """Update a brand by ID"""
     from fastapi import HTTPException
 
@@ -76,6 +78,7 @@ def update_brand(brand_id: str, body: BrandCreate, user_id: str = Depends(get_cu
     update_data = {
         "name": body.name,
         "description": body.description,
+        "brand_voice_id": body.brand_voice_id,
     }
 
     updated = client.table("brands").update(update_data).eq("id", brand_id).eq("user_id", user_id).execute()
@@ -101,3 +104,18 @@ def delete_brand(brand_id: str, user_id: str = Depends(get_current_user_id)):
     # This keeps campaigns that reference this brand working
     client.table("brands").update({"archived": True}).eq("id", brand_id).eq("user_id", user_id).execute()
     return Response(status_code=204)
+
+
+@router.get("/voices/available")
+def list_available_voices():
+    """List available ElevenLabs premade voices for brand voice selection"""
+    from fastapi import HTTPException
+
+    if not get_settings().elevenlabs_enabled:
+        raise HTTPException(status_code=503, detail="ElevenLabs TTS is not enabled")
+
+    try:
+        voices = elevenlabs_tts.list_premade_voices()
+        return voices
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch voices: {str(e)}")

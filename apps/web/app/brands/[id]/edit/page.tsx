@@ -10,39 +10,40 @@ export default function EditBrandPage() {
   const params = useParams();
   const brandId = params.id as string;
 
-  const [loading, setLoading] = useState(true);
+  const [brand, setBrand] = useState<any>(null);
   const [brandName, setBrandName] = useState("");
   const [description, setDescription] = useState("");
-  const [originalName, setOriginalName] = useState("");
-  const [step, setStep] = useState<string | null>(null);
+  const [brandVoiceId, setBrandVoiceId] = useState("");
+  const [voices, setVoices] = useState<Array<{ voice_id: string; name: string; description: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Brand name validation
   const [nameValidation, setNameValidation] = useState<{
     checking: boolean;
     isDuplicate: boolean;
     message: string | null;
   }>({ checking: false, isDuplicate: false, message: null });
 
-  // Load brand data
+  // Load brand data and available voices
   useEffect(() => {
-    api
-      .getBrand(brandId)
-      .then((brand) => {
-        setBrandName(brand.name);
-        setDescription(brand.description || "");
-        setOriginalName(brand.name);
-        setLoading(false);
+    Promise.all([
+      api.getBrand(brandId),
+      api.getAvailableVoices().catch(() => []), // Non-fatal if voices fail to load
+    ])
+      .then(([brandData, voicesData]) => {
+        setBrand(brandData);
+        setBrandName(brandData.name);
+        setDescription(brandData.description || "");
+        setBrandVoiceId(brandData.brand_voice_id || "");
+        setVoices(voicesData);
       })
-      .catch((err) => {
-        setError(err.message ?? String(err));
-        setLoading(false);
-      });
+      .catch((err) => setError(err.message ?? String(err)))
+      .finally(() => setLoading(false));
   }, [brandId]);
 
-  // Check for duplicate brand names with debounce (only if name changed)
+  // Check for duplicate brand names with debounce
   useEffect(() => {
-    if (!brandName.trim() || brandName.toLowerCase() === originalName.toLowerCase()) {
+    if (!brandName.trim() || brandName === brand?.name) {
       setNameValidation({ checking: false, isDuplicate: false, message: null });
       return;
     }
@@ -53,7 +54,7 @@ export default function EditBrandPage() {
       try {
         const brands = await api.listBrands();
         const duplicate = brands.find(
-          (b: any) => b.name.toLowerCase() === brandName.trim().toLowerCase()
+          (b: any) => b.id !== brandId && b.name.toLowerCase() === brandName.trim().toLowerCase()
         );
 
         if (duplicate) {
@@ -72,32 +73,43 @@ export default function EditBrandPage() {
     }, 500); // 500ms debounce
 
     return () => clearTimeout(timeoutId);
-  }, [brandName, originalName]);
+  }, [brandName, brand, brandId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setSaving(true);
 
     try {
-      setStep("Updating brand…");
       await api.updateBrand(brandId, {
         name: brandName,
         description: description || undefined,
-        guideline_raw_text: "", // Not editable
-        guideline_asset_paths: [], // Not editable
+        brand_voice_id: brandVoiceId || undefined,
       });
 
+      // Redirect back to brands library
       router.push("/brands");
     } catch (err: any) {
       setError(err.message ?? String(err));
-      setStep(null);
+      setSaving(false);
     }
   }
 
   if (loading) {
     return (
       <div className="max-w-2xl mx-auto">
-        <p className="text-sm text-neutral-500">Loading brand…</p>
+        <p className="text-sm text-neutral-500">Loading…</p>
+      </div>
+    );
+  }
+
+  if (error && !brand) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <p className="text-red-600 text-sm">{error}</p>
+        <Link href="/brands" className="text-sm text-neutral-500 mt-4 inline-block">
+          ← Back to brand library
+        </Link>
       </div>
     );
   }
@@ -109,7 +121,8 @@ export default function EditBrandPage() {
       </Link>
       <h1 className="text-xl font-semibold mb-2 mt-2">Edit Brand</h1>
       <p className="text-sm text-neutral-500 mb-6">
-        Update brand name and description. Note: Brand guidelines cannot be edited after creation.
+        Update your brand's basic information and voice settings. Brand guidelines cannot be edited
+        after creation.
       </p>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
@@ -135,12 +148,9 @@ export default function EditBrandPage() {
             {nameValidation.isDuplicate && nameValidation.message && (
               <p className="text-xs text-red-600 mt-1">{nameValidation.message}</p>
             )}
-            {!nameValidation.checking &&
-              !nameValidation.isDuplicate &&
-              brandName.trim() &&
-              brandName.toLowerCase() !== originalName.toLowerCase() && (
-                <p className="text-xs text-green-600 mt-1">✓ Name is available</p>
-              )}
+            {!nameValidation.checking && !nameValidation.isDuplicate && brandName.trim() && brandName !== brand?.name && (
+              <p className="text-xs text-green-600 mt-1">✓ Name is available</p>
+            )}
           </div>
 
           <div>
@@ -160,23 +170,40 @@ export default function EditBrandPage() {
           </div>
         </fieldset>
 
-        <div className="bg-neutral-50 border rounded p-4">
-          <p className="text-sm text-neutral-600">
-            <strong>Note:</strong> Brand guidelines and extracted profiles cannot be edited after creation.
-            If you need to change guidelines, create a new brand instead.
-          </p>
-        </div>
+        <fieldset className="flex flex-col gap-3">
+          <legend className="font-medium mb-1">Voice Settings</legend>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Brand voice (optional)
+            </label>
+            <select
+              value={brandVoiceId}
+              onChange={(e) => setBrandVoiceId(e.target.value)}
+              className="border rounded px-3 py-2 w-full"
+            >
+              <option value="">Default voice</option>
+              {voices.map((voice) => (
+                <option key={voice.voice_id} value={voice.voice_id}>
+                  {voice.name} - {voice.description}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-neutral-400 mt-1">
+              Voice used for video voiceovers across all campaigns using this brand
+            </p>
+          </div>
+        </fieldset>
 
         {error && <p className="text-red-600 text-sm">{error}</p>}
-        {step && <p className="text-sm text-neutral-500">{step}</p>}
 
         <div className="flex gap-3">
           <button
             type="submit"
-            disabled={!!step || nameValidation.isDuplicate}
+            disabled={saving || nameValidation.isDuplicate}
             className="bg-black text-white rounded px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {step ? "Saving…" : "Save Changes"}
+            {saving ? "Saving…" : "Save Changes"}
           </button>
           <Link
             href="/brands"

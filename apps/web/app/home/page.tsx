@@ -55,6 +55,9 @@ export default function HomePage() {
           <Link href="/brands" className="text-sm text-neutral-500">
             Brands
           </Link>
+          <Link href="/products" className="text-sm text-neutral-500">
+            Products
+          </Link>
           <Link href="/settings/social" className="text-sm text-neutral-500">
             Social accounts
           </Link>

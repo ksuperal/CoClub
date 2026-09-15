@@ -11,21 +11,34 @@ type Brand = {
   name: string;
   description: string | null;
   extracted_profile: any;
+  brand_voice_id: string | null;
   created_at: string;
 };
 
 export default function BrandsPage() {
   const router = useRouter();
   const [brands, setBrands] = useState<Brand[] | null>(null);
+  const [voices, setVoices] = useState<Array<{ voice_id: string; name: string; description: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .listBrands()
-      .then(setBrands)
+    Promise.all([
+      api.listBrands(),
+      api.getAvailableVoices().catch(() => []), // Non-fatal if voices fail to load
+    ])
+      .then(([brandsData, voicesData]) => {
+        setBrands(brandsData);
+        setVoices(voicesData);
+      })
       .catch((err) => setError(err.message ?? String(err)));
   }, []);
+
+  function getVoiceName(voiceId: string | null): string | null {
+    if (!voiceId) return null;
+    const voice = voices.find((v) => v.voice_id === voiceId);
+    return voice?.name ?? voiceId; // Fallback to ID if name not found
+  }
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -63,6 +76,9 @@ export default function BrandsPage() {
         <div className="flex items-center gap-3">
           <Link href="/brands/new" className="bg-black text-white rounded px-3 py-2 text-sm">
             + Add Brand
+          </Link>
+          <Link href="/products" className="text-sm text-neutral-500">
+            Products
           </Link>
           <Link href="/home" className="text-sm text-neutral-500">
             Campaigns
@@ -113,6 +129,11 @@ export default function BrandsPage() {
             {brand.extracted_profile?.style && (
               <p className="text-xs text-neutral-400 mb-3">
                 Style: {brand.extracted_profile.style}
+              </p>
+            )}
+            {getVoiceName(brand.brand_voice_id) && (
+              <p className="text-xs text-neutral-400 mb-3">
+                Voice: {getVoiceName(brand.brand_voice_id)}
               </p>
             )}
             <div className="flex items-center justify-between gap-2">
