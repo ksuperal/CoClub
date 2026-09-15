@@ -63,6 +63,7 @@ class ProductOut(BaseModel):
     brand_id: str
     name: str
     description_text: str | None
+    asset_paths: list[str]
     extracted_profile: dict[str, Any] | None
     created_at: datetime
 

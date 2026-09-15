@@ -27,6 +27,7 @@ export default function ProductsPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -81,11 +82,11 @@ export default function ProductsPage() {
           <Link href="/products/new" className="bg-black text-white rounded px-3 py-2 text-sm">
             + Add Product
           </Link>
-          <Link href="/brands" className="text-sm text-neutral-500">
-            Brands
-          </Link>
           <Link href="/home" className="text-sm text-neutral-500">
             Campaigns
+          </Link>
+          <Link href="/brands" className="text-sm text-neutral-500">
+            Brands
           </Link>
           <Link href="/settings/social" className="text-sm text-neutral-500">
             Social accounts
@@ -141,35 +142,95 @@ export default function ProductsPage() {
                 Category: {product.extracted_profile.category}
               </p>
             )}
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-3">
-                <Link
-                  href={`/intake?brand_id=${product.brand_id}&product_id=${product.id}`}
-                  className="text-sm text-blue-600 hover:underline"
-                >
-                  Create campaign →
-                </Link>
-                <Link
-                  href={`/products/${product.id}/edit`}
-                  className="text-xs text-neutral-500 hover:text-neutral-700"
-                >
-                  Edit
-                </Link>
-                <button
-                  onClick={() => handleDelete(product.id, product.name)}
-                  disabled={deleting === product.id}
-                  className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
-                >
-                  {deleting === product.id ? "Removing..." : "Remove"}
-                </button>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <Link
+                    href={`/intake?brand_id=${product.brand_id}&product_id=${product.id}`}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    Create campaign →
+                  </Link>
+                  <button
+                    onClick={() => setViewingProduct(product)}
+                    className="text-xs text-neutral-500 hover:text-neutral-700"
+                  >
+                    View photos ({product.asset_paths?.length || 0})
+                  </button>
+                  <button
+                    onClick={() => handleDelete(product.id, product.name)}
+                    disabled={deleting === product.id}
+                    className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+                  >
+                    {deleting === product.id ? "Removing..." : "Remove"}
+                  </button>
+                </div>
+                <span className="text-xs text-neutral-400">
+                  {new Date(product.created_at).toLocaleDateString()}
+                </span>
               </div>
-              <span className="text-xs text-neutral-400">
-                {new Date(product.created_at).toLocaleDateString()}
-              </span>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Photo viewer modal */}
+      {viewingProduct && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setViewingProduct(null)}
+        >
+          <div
+            className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-semibold">{viewingProduct.name}</h2>
+                <p className="text-sm text-neutral-500">
+                  {getBrandName(viewingProduct.brand_id)}
+                </p>
+              </div>
+              <button
+                onClick={() => setViewingProduct(null)}
+                className="text-neutral-500 hover:text-neutral-700 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            {viewingProduct.description_text && (
+              <p className="text-sm text-neutral-600 mb-4">
+                {viewingProduct.description_text}
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {viewingProduct.asset_paths?.map((path, index) => (
+                <div key={index} className="border rounded overflow-hidden">
+                  <img
+                    src={supabase.storage.from("product-assets").getPublicUrl(path).data.publicUrl}
+                    alt={`${viewingProduct.name} - Photo ${index + 1}`}
+                    className="w-full h-auto"
+                    onError={(e) => {
+                      e.currentTarget.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Crect fill='%23f5f5f5' width='400' height='300'/%3E%3Ctext fill='%23999' x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle'%3EImage not found%3C/text%3E%3C/svg%3E";
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setViewingProduct(null)}
+                className="border rounded px-4 py-2 text-sm hover:bg-neutral-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

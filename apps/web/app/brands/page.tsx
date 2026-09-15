@@ -77,11 +77,11 @@ export default function BrandsPage() {
           <Link href="/brands/new" className="bg-black text-white rounded px-3 py-2 text-sm">
             + Add Brand
           </Link>
-          <Link href="/products" className="text-sm text-neutral-500">
-            Products
-          </Link>
           <Link href="/home" className="text-sm text-neutral-500">
             Campaigns
+          </Link>
+          <Link href="/products" className="text-sm text-neutral-500">
+            Products
           </Link>
           <Link href="/settings/social" className="text-sm text-neutral-500">
             Social accounts

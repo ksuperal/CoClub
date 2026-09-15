@@ -17,6 +17,23 @@ def approve_campaign(client: Client, *, campaign_id: str, approved_variant_ids: 
 
 
 def post_campaign(client: Client, *, campaign_id: str, user_id: str) -> list[dict[str, Any]]:
+    # Idempotency guard: if posts already exist for this campaign, return them instead
+    # of creating duplicates. This prevents double-posting if the endpoint is called
+    # twice (e.g., double-click, retry, React StrictMode in dev).
+    approved_variants = (
+        client.table("variants")
+        .select("id")
+        .eq("campaign_id", campaign_id)
+        .eq("status", "approved")
+        .execute()
+        .data
+    )
+    if approved_variants:
+        variant_ids = [v["id"] for v in approved_variants]
+        existing_posts = client.table("posts").select("*").in_("variant_id", variant_ids).execute().data
+        if existing_posts:
+            return existing_posts
+
     client.table("campaigns").update({"status": "posting"}).eq("id", campaign_id).execute()
 
     approved_variants = (
