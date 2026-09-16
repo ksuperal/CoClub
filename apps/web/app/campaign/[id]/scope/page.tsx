@@ -39,8 +39,11 @@ export default function ScopePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
+  const [planItemReferences, setPlanItemReferences] = useState<(string | null)[]>([]);
+  const [uploadingItemIndex, setUploadingItemIndex] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const itemFileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   useEffect(() => {
     (async () => {
@@ -102,6 +105,8 @@ export default function ScopePage() {
       if (res.kind === "plan") {
         setMessages((prev) => [...prev, { role: "assistant", text: res.summary }]);
         setPlan({ items: res.items, summary: res.summary });
+        // Initialize reference array for plan items
+        setPlanItemReferences(new Array(res.items.length).fill(null));
       } else {
         setMessages((prev) => [...prev, { role: "assistant", text: res.text }]);
       }
@@ -109,6 +114,26 @@ export default function ScopePage() {
       setError(err.message ?? String(err));
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleItemReferenceUpload(itemIndex: number, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingItemIndex(itemIndex);
+    setError(null);
+    try {
+      const { path } = await api.uploadVariantReference(file);
+      setPlanItemReferences((prev) => {
+        const next = [...prev];
+        next[itemIndex] = path;
+        return next;
+      });
+    } catch (err: any) {
+      setError(err.message ?? String(err));
+    } finally {
+      setUploadingItemIndex(null);
     }
   }
 
@@ -141,7 +166,7 @@ export default function ScopePage() {
     setConfirming(true);
     setError(null);
     try {
-      await api.confirmScope(id);
+      await api.confirmScope(id, planItemReferences);
       router.push(`/campaign/${id}/prompts`);
     } catch (err: any) {
       setError(err.message ?? String(err));
@@ -227,7 +252,27 @@ export default function ScopePage() {
                   </button>
                   {isExpanded && (
                     <div className="px-2 pb-2 border-t border-neutral-100">
-                      <p className="text-neutral-700 text-sm mt-2">{item.concept}</p>
+                      <p className="text-neutral-700 text-sm mt-2 mb-3">{item.concept}</p>
+                      <div className="border-t pt-2">
+                        <label className="text-xs text-neutral-500 block">
+                          Style reference (optional)
+                          <div className="text-xs text-neutral-400 mb-1">
+                            Upload a reference image for the visual style of {item.count > 1 ? `all ${item.count} pieces` : 'this piece'}
+                          </div>
+                          <input
+                            ref={(el) => (itemFileInputRefs.current[i] = el)}
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleItemReferenceUpload(i, e)}
+                            disabled={uploadingItemIndex === i || confirming}
+                            className="text-xs mt-1"
+                          />
+                          {uploadingItemIndex === i && <span className="text-xs text-neutral-400 ml-2">Uploading...</span>}
+                          {planItemReferences[i] && uploadingItemIndex !== i && (
+                            <div className="text-xs text-green-600 mt-1">✓ Reference uploaded</div>
+                          )}
+                        </label>
+                      </div>
                     </div>
                   )}
                 </div>

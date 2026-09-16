@@ -38,3 +38,10 @@ async def upload_moodboard_asset(file: UploadFile, user_id: str = Depends(get_cu
     """Uploads one moodboard/reference image, returns its storage path for use in
     campaign scoping conversation."""
     return await _upload("brand-assets", file, user_id)
+
+
+@router.post("/variant-reference")
+async def upload_variant_reference(file: UploadFile, user_id: str = Depends(get_current_user_id)):
+    """Uploads one style reference image for a specific variant, returns its storage
+    path for use in PATCH /variants/{id} { reference_asset: path }."""
+    return await _upload("brand-assets", file, user_id)

@@ -290,6 +290,62 @@ def extract_product_profile(
     return _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=2000)
 
 
+def analyze_reference_composition(*, image_bytes: bytes, media_type: str) -> tuple[str, int]:
+    """Analyzes a reference image to extract the shot composition, framing, and concept
+    that should be replicated with the user's product. Returns (composition_description, tokens)."""
+    tool = {
+        "name": "record_composition_analysis",
+        "description": "Record the composition and shot concept of this reference image.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "composition_description": {
+                    "type": "string",
+                    "description": "A detailed description of the shot composition to replicate — camera angle "
+                    "(e.g. 'overhead shot', 'eye-level', 'low angle looking up'), subject pose/position "
+                    "(e.g. 'person holding product above their head with arms extended', 'hands presenting product "
+                    "at chest level'), framing (e.g. 'closeup on hands and product, face blurred in background', "
+                    "'full body shot', 'product fills frame'), depth of field (e.g. 'shallow focus on product', "
+                    "'everything sharp'), and any other compositional elements. ALSO include visual style: exact "
+                    "colors, lighting quality, mood. Be extremely specific — this will guide the entire shot structure.",
+                }
+            },
+            "required": ["composition_description"],
+        },
+    }
+    system = (
+        "You analyze reference images to extract the complete shot concept and composition that should be replicated. "
+        "Describe EVERYTHING about how the shot is structured: camera angle, subject positioning and pose, how the "
+        "product is being held/displayed, framing, focus/depth of field, AND visual style (colors, lighting, mood). "
+        "Be extremely detailed and specific — the generated image must match this composition exactly, just with a "
+        "different product. Think like a photographer describing how to recreate this exact shot."
+    )
+    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    content = [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": image_b64},
+        },
+        {
+            "type": "text",
+            "text": "Analyze this reference image. Describe the complete shot composition, camera angle, subject pose, "
+            "framing, and visual style in detail so it can be replicated with a different product.",
+        },
+    ]
+    messages = [{"role": "user", "content": content}]
+    result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=800)
+
+    # Handle missing or malformed response gracefully
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if "composition_description" not in result:
+        logger.error(f"analyze_reference_composition: Missing 'composition_description' in result. Keys present: {list(result.keys())}, Full result: {result}")
+        raise KeyError(f"composition_description (got keys: {list(result.keys())})")
+
+    return result["composition_description"], tokens
+
+
 # ---------------------------------------------------------------------------
 # Step 2a: ideation — message angles (separated from execution for diversity)
 # ---------------------------------------------------------------------------
@@ -577,10 +633,16 @@ def write_image_prompt(
         "You write image-generation prompts for social ad creative. The prompt must faithfully render "
         "the brand's color palette, mascot (if any), and visual style, and fit a "
         f"'{campaign_type}' campaign.\n\n"
-        "CRITICAL: If the message angle includes specific visual details (color names like 'dusty rose' "
+        "REFERENCE COMPOSITION: If the message angle includes 'shot composition (from reference):', that "
+        "composition description is MANDATORY and defines the ENTIRE shot structure — camera angle, subject "
+        "position/pose, framing, depth of field, and visual style. Your prompt must replicate that exact "
+        "composition with the user's product. The composition is extracted from a reference photo, so every "
+        "detail (camera angle, how the product is held/displayed, framing, lighting, colors) must be preserved "
+        "exactly. Think of it as recreating the same photograph but with a different product.\n\n"
+        "VISUAL DETAILS: If the message angle includes specific visual details (color names like 'dusty rose' "
         "or 'sage green', lighting descriptions like 'soft natural light' or 'golden hour', composition "
         "styles like 'minimal with negative space' or 'centered flat lay', mood descriptors like 'warmly "
-        "nostalgic' or 'sleek and modern'), these are NOT arbitrary — they come from moodboard analysis "
+        "nostalgic' or 'sleek and modern'), these are NOT arbitrary — they come from moodboard/reference analysis "
         "and define the campaign's visual DNA. Your image prompt MUST preserve every specific visual "
         "element mentioned in the angle. Don't paraphrase 'dusty rose' as 'pink' or 'soft natural light' "
         "as 'bright'. Every detail is intentional.\n\n"

@@ -134,6 +134,7 @@ class VariantOut(BaseModel):
     music_prompt: str | None = None
     audio_gen_error: str | None = None
     target_platforms: list[str] = Field(default_factory=list)  # empty = no restriction, post everywhere connected
+    reference_asset: str | None = None  # defaults until the 0020 migration is applied
 
 
 class VariantPromptUpdate(BaseModel):

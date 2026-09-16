@@ -19,12 +19,21 @@ type CampaignListItem = {
 };
 
 function statusHref(campaign: CampaignListItem): string {
-  // Variants are waiting on the user's review/approval — send them straight there.
-  // Everything else (still generating, posted, completed, failed) has more to see
-  // on the status page.
-  return campaign.status === "awaiting_approval"
-    ? `/campaign/${campaign.id}/variants`
-    : `/campaign/${campaign.id}`;
+  // Route to the appropriate page based on campaign status:
+  // - awaiting_scope: scoping conversation (plan creation)
+  // - awaiting_prompt_review: prompts review (before generation)
+  // - awaiting_approval: variants review (after generation, before posting)
+  // - everything else: main status page (generating, posted, completed, failed)
+  if (campaign.status === "awaiting_scope") {
+    return `/campaign/${campaign.id}/scope`;
+  }
+  if (campaign.status === "awaiting_prompt_review") {
+    return `/campaign/${campaign.id}/prompts`;
+  }
+  if (campaign.status === "awaiting_approval") {
+    return `/campaign/${campaign.id}/variants`;
+  }
+  return `/campaign/${campaign.id}`;
 }
 
 export default function HomePage() {

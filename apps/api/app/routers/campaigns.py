@@ -201,18 +201,23 @@ def scope_message(campaign_id: str, body: dict[str, Any], user_id: str = Depends
 
 
 @router.post("/{campaign_id}/scope/confirm", response_model=list[VariantOut])
-def scope_confirm(campaign_id: str, user_id: str = Depends(get_current_user_id)):
+def scope_confirm(campaign_id: str, body: dict[str, Any] | None = None, user_id: str = Depends(get_current_user_id)):
     """Locks in the most recently finalized plan (from /scope/messages) and moves
     to ideation — writes prompts for each planned piece, no image-gen/video-gen/
     audio-gen cost yet. Campaign lands in 'awaiting_prompt_review' for the user to
-    edit/skip prompts before triggering the expensive `generate-media` call."""
+    edit/skip prompts before triggering the expensive `generate-media` call.
+
+    Optional body: { plan_item_references: [(string | null), ...] } — one reference
+    asset path per plan item (indexed), applied to all variants created from that item."""
     client = get_service_client()
     campaign = _get_owned_campaign(client, campaign_id, user_id)
     if campaign["status"] != "awaiting_scope":
         raise HTTPException(status_code=409, detail=f"Campaign is '{campaign['status']}', expected 'awaiting_scope'")
     if not campaign.get("content_plan"):
         raise HTTPException(status_code=409, detail="No finalized plan yet — keep messaging /scope/messages first")
-    return ideate_variants(client, user_id=user_id, campaign=campaign)
+
+    plan_item_references = (body or {}).get("plan_item_references", [])
+    return ideate_variants(client, user_id=user_id, campaign=campaign, plan_item_references=plan_item_references)
 
 
 @router.patch("/{campaign_id}/variants/{variant_id}/prompt", response_model=VariantOut)

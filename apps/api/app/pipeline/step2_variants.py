@@ -417,7 +417,9 @@ def _expand_content_plan(campaign: dict[str, Any]) -> list[dict[str, Any]]:
     uniform campaign-level fields (variant_count/media_type/include_voiceover/
     include_music, target_platforms=[] meaning "no restriction") when there's
     no content_plan — keeps ideate_variants working for any campaign that
-    somehow skips scoping, not just plan-driven ones."""
+    somehow skips scoping, not just plan-driven ones.
+
+    Each spec includes a 'plan_item_index' to track which plan item it came from."""
     plan = campaign.get("content_plan")
     if not plan:
         media_type = campaign.get("media_type", "image")
@@ -428,12 +430,13 @@ def _expand_content_plan(campaign: dict[str, Any]) -> list[dict[str, Any]]:
                 "include_voiceover": media_type == "video" and campaign.get("include_voiceover", False),
                 "include_music": media_type == "video" and campaign.get("include_music", False),
                 "concept": "",
+                "plan_item_index": None,
             }
             for _ in range(campaign.get("variant_count", 1))
         ]
 
     specs = []
-    for item in plan:
+    for item_index, item in enumerate(plan):
         media_type = item.get("media_type", "image")
         for _ in range(item.get("count", 1)):
             specs.append(
@@ -443,6 +446,7 @@ def _expand_content_plan(campaign: dict[str, Any]) -> list[dict[str, Any]]:
                     "include_voiceover": media_type == "video" and item.get("include_voiceover", False),
                     "include_music": media_type == "video" and item.get("include_music", False),
                     "concept": item.get("concept") or "",
+                    "plan_item_index": item_index,
                 }
             )
     return specs
@@ -457,19 +461,43 @@ def _expand_content_plan(campaign: dict[str, Any]) -> list[dict[str, Any]]:
 # 'awaiting_approval' — that status is reserved for "media exists, review it
 # for posting."
 # ---------------------------------------------------------------------------
-def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -> list[dict[str, Any]]:
+def ideate_variants(
+    client: Client, *, user_id: str, campaign: dict[str, Any], plan_item_references: list[str | None] | None = None
+) -> list[dict[str, Any]]:
     campaign_id = campaign["id"]
     specs = _expand_content_plan(campaign)
     brand_profile, product_profile = _load_profiles(client, campaign)
     reference_images, reference_kinds, reference_warning = _get_reference_images(client, campaign)
     logger.info(
-        "Step 2 ideation for campaign %s: product_id=%s, %d piece(s) planned (%s), image mode=%s",
+        "Step 2 ideation for campaign %s: product_id=%s, %d piece(s) planned (%s), image mode=%s, plan_item_references=%s",
         campaign_id,
         campaign.get("product_id"),
         len(specs),
         ", ".join(sorted({s["media_type"] for s in specs})),
         f"images.edit with reference(s) {reference_kinds}" if reference_images else "text-only (images.generate)",
+        plan_item_references,
     )
+
+    # Analyze variant-specific reference images before generating prompts
+    reference_composition_map: dict[str, str] = {}  # path -> composition description
+    if plan_item_references:
+        unique_refs = {ref for ref in plan_item_references if ref}
+        for ref_path in unique_refs:
+            try:
+                file_bytes, media_type = download_asset(client, BRAND_ASSETS_BUCKET, ref_path)
+                if file_bytes and media_type:
+                    comp_desc, comp_tokens = llm.analyze_reference_composition(
+                        image_bytes=file_bytes, media_type=media_type
+                    )
+                    reference_composition_map[ref_path] = comp_desc
+                    usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=comp_tokens)
+                    logger.info(
+                        "Analyzed reference composition for %s: %s",
+                        ref_path,
+                        comp_desc[:100] + "..." if len(comp_desc) > 100 else comp_desc,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to analyze reference %s: %s — continuing without it", ref_path, exc)
 
     update: dict[str, Any] = {"status": "awaiting_prompt_review"}
     if reference_warning:
@@ -489,11 +517,28 @@ def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -
         variants = []
         for spec, angle in zip(specs, angles):
             media_type = spec["media_type"]
-            # The plan's concept (from the scoping conversation — the user's own creative
-            # direction, category research, or Claude's judgment) is the actual shot/scene
-            # to render; the message angle is the strategic hook. Both matter, so both get
-            # passed through together rather than the angle alone.
-            angle_with_concept = f"{angle} — creative concept: {spec['concept']}" if spec["concept"] else angle
+
+            # Check if this variant has a reference image - if so, use the reference
+            # composition as the PRIMARY concept instead of the scoping conversation concept
+            item_index = spec.get("plan_item_index")
+            has_reference = (
+                item_index is not None
+                and plan_item_references
+                and 0 <= item_index < len(plan_item_references)
+                and plan_item_references[item_index]
+                and plan_item_references[item_index] in reference_composition_map
+            )
+
+            if has_reference:
+                # Reference composition overrides the scoping concept - the reference
+                # defines the entire shot structure
+                ref_path = plan_item_references[item_index]
+                composition = reference_composition_map[ref_path]
+                angle_with_concept = f"{angle} — shot composition (from reference): {composition}"
+            else:
+                # No reference - use the concept from the scoping conversation
+                # (the user's own creative direction, category research, or Claude's judgment)
+                angle_with_concept = f"{angle} — creative concept: {spec['concept']}" if spec["concept"] else angle
 
             image_prompt, prompt_tokens = llm.write_image_prompt(
                 angle=angle_with_concept,
@@ -536,6 +581,12 @@ def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -
                 )
                 audio_fields = audio_script  # {voiceover_script, voice_instructions, music_prompt}
 
+            # Attach reference asset if provided for this plan item
+            reference_asset = None
+            item_index = spec.get("plan_item_index")
+            if item_index is not None and plan_item_references and 0 <= item_index < len(plan_item_references):
+                reference_asset = plan_item_references[item_index]
+
             row = (
                 client.table("variants")
                 .insert(
@@ -547,6 +598,7 @@ def ideate_variants(client: Client, *, user_id: str, campaign: dict[str, Any]) -
                         "media_type": media_type,
                         "target_platforms": spec["target_platforms"],
                         "generation_status": "awaiting_prompt_review",
+                        "reference_asset": reference_asset,
                         **audio_fields,
                     }
                 )
@@ -615,6 +667,32 @@ def _generate_media_for_variant(
     media_type = variant.get("media_type", "image")
     angle = variant["message_angle"]
 
+    # Load variant-specific reference asset if provided
+    variant_references = list(reference_images)  # Copy to avoid modifying shared list
+    variant_kinds = list(reference_kinds)
+    if variant.get("reference_asset"):
+        try:
+            variant_ref = _load_edit_references(
+                client,
+                bucket=BRAND_ASSETS_BUCKET,
+                asset_paths=[variant["reference_asset"]],
+                label="Variant-specific reference",
+            )
+            variant_references.extend(variant_ref)
+            variant_kinds.extend(["variant"] * len(variant_ref))
+            logger.info(
+                "Variant %s: loaded %d variant-specific reference(s) from '%s'",
+                variant_id,
+                len(variant_ref),
+                variant["reference_asset"],
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to load variant reference asset '%s' for variant %s — proceeding with brand/product refs only",
+                variant["reference_asset"],
+                variant_id,
+            )
+
     retry_notes: str | None = None
     attempts = 0
     passed = False
@@ -628,14 +706,14 @@ def _generate_media_for_variant(
                 angle=angle,
                 brand_profile=brand_profile,
                 product_profile=product_profile,
-                reference_kinds=reference_kinds,
+                reference_kinds=variant_kinds,
                 campaign_type=campaign_type,
                 retry_notes=retry_notes,
             )
             usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=prompt_tokens)
 
-        if reference_images:
-            image_bytes = image_gen.edit_image_with_references(image_prompt, reference_images)
+        if variant_references:
+            image_bytes = image_gen.edit_image_with_references(image_prompt, variant_references)
         else:
             image_bytes = image_gen.generate_image(image_prompt)
         usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="image_gen", units=1)
@@ -645,8 +723,8 @@ def _generate_media_for_variant(
             media_type="image/png",
             brand_profile=brand_profile,
             product_profile=product_profile,
-            reference_images=reference_images,
-            reference_kinds=reference_kinds,
+            reference_images=variant_references,
+            reference_kinds=variant_kinds,
         )
         usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=check_tokens)
 

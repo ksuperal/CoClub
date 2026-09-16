@@ -58,6 +58,8 @@ export const api = {
 
   uploadMoodboardAssets: (files: File[]) => uploadFiles("/assets/moodboard", files),
 
+  uploadVariantReference: (file: File) => uploadFile("/assets/variant-reference", file),
+
   createBrand: (body: { name: string; description?: string; guideline_raw_text: string; guideline_asset_paths: string[] }) =>
     request<any>("/brands", { method: "POST", body: JSON.stringify(body) }),
 
@@ -110,7 +112,11 @@ export const api = {
       body: JSON.stringify({ text, image_urls }),
     }),
 
-  confirmScope: (id: string) => request<any[]>(`/campaigns/${id}/scope/confirm`, { method: "POST" }),
+  confirmScope: (id: string, plan_item_references?: (string | null)[]) =>
+    request<any[]>(`/campaigns/${id}/scope/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ plan_item_references: plan_item_references || [] }),
+    }),
 
   updateVariantPrompt: (
     campaignId: string,

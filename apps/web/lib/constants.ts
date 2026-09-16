@@ -12,8 +12,10 @@ export function campaignTypeLabel(value: string): string {
 
 export const STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
+  awaiting_scope: "Planning campaign",
+  awaiting_prompt_review: "Review prompts",
   generating_variants: "Generating variants…",
-  awaiting_approval: "Awaiting your review",
+  awaiting_approval: "Review variants",
   approved: "Approved",
   posting: "Posting…",
   posted: "Posted",
