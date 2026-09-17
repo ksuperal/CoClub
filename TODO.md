@@ -74,13 +74,15 @@ advantage; this is what replaced it.
       (found via `ffprobe` on an actual "generated" video: zero audio
       streams, no recorded error). Fixed to gate on the variant's own
       `voiceover_script`/`music_prompt` instead.
-- [ ] **Not yet tested end-to-end through the actual UI.** Migrations
-      `0009`-`0011` are applied and the backend logic is real-API-verified in
-      isolation, but the full `/intake` → `/scope` → `/prompts` → generate
-      flow hasn't been run once through the browser.
+- [x] End-to-end through the actual UI — confirmed by extensive real usage
+      since: the moodboard/reference-image and product-library work below was
+      all built and bug-fixed (asset-path fix, moodboard-response fix, brand
+      guideline edit fix) by running real campaigns through
+      `/intake` → `/scope` → `/prompts` → generate repeatedly.
 - [ ] Fresh video generation not yet re-verified after the audio-gating fix
       above — confirm with a real `ffprobe` check that audio actually comes
-      through now.
+      through now. (No direct evidence this specific check has been re-run
+      since the fix — worth a real generation + `ffprobe` pass to close out.)
 - [ ] Audio partial-failure handling (one of voiceover/music fails, the other
       still ships) is implemented but not yet seen in a real run where both
       calls succeed together.
@@ -124,18 +126,23 @@ Brands are now reusable presets stored in a library, separate from campaign crea
       - Creating new brands inline without leaving campaign flow
       - Pre-selection via `?brand_id=` query parameter
       - Auto-detection if user has no brands (forces create mode)
-- [ ] **Brand editing** — `/brands/[id]/edit` page to update brand name,
-      description, or guidelines after creation
-- [ ] **Brand archiving/deletion** — soft-delete or archive brands no longer in
-      use, with safeguards if campaigns still reference them
+- [x] **Brand editing** — `/brands/[id]/edit` page updates name, description,
+      and guidelines after creation.
+- [x] **Brand archiving/deletion** — soft-delete via `archived` column
+      (`0014_brand_archiving.sql`); `DELETE /brands/{id}` archives rather than
+      hard-deletes, so existing campaigns keep their reference.
 - [ ] **Brand analytics** — show campaign count and aggregated performance metrics
       per brand in the library view
-- [ ] **Product library** — same pattern as brands: reusable product presets
-      (name, description, photos) that can be selected across campaigns instead of
-      re-uploading. Requires schema similar to brands table.
-- [ ] **Moodboard upload during scoping conversation** — allow users to upload
-      reference images mid-conversation in `/campaign/[id]/scope` to guide the
-      agent's creative direction (Phase 2 enhancement from original scoping design)
+- [x] **Product library** — `0017_product_library.sql` + full CRUD in
+      `routers/products.py`; `/products` (library grid) and `/products/new`
+      pages. Later hardened (`Fix - product library asset path`) and extended
+      to let a product carry its own brand voice
+      (`de55ca1 Feat - Allow product library + brand voice`).
+- [x] **Moodboard upload during scoping conversation** — shipped as "Reference
+      image intake": `0015_campaign_moodboard.sql` (campaign-level) extended by
+      `0020_variant_reference_asset.sql` (per-variant reference image), with
+      `llm.py`/`step2_variants.py` using it to guide generation. Iterated live
+      (`Fix - optimize moodboard analysis response`).
 
 ## Copywriting (Step 3)
 
