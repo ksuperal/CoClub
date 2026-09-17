@@ -3,7 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
 import { api } from "@/lib/api";
+
+// Matches the app's existing text-sm/neutral styling — react-markdown renders plain
+// HTML tags, which get no Tailwind Preflight styling here (no @tailwindcss/typography
+// plugin installed), so each tag needs its className set explicitly or headings/lists
+// render unstyled.
+const markdownComponents = {
+  p: (props: any) => <p className="mb-2 last:mb-0" {...props} />,
+  strong: (props: any) => <strong className="font-semibold" {...props} />,
+  ul: (props: any) => <ul className="list-disc pl-5 mb-2" {...props} />,
+  ol: (props: any) => <ol className="list-decimal pl-5 mb-2" {...props} />,
+  li: (props: any) => <li className="mb-1" {...props} />,
+  h1: (props: any) => <h3 className="font-semibold mt-3 mb-1" {...props} />,
+  h2: (props: any) => <h3 className="font-semibold mt-3 mb-1" {...props} />,
+  h3: (props: any) => <h3 className="font-semibold mt-3 mb-1" {...props} />,
+};
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -211,7 +227,10 @@ export default function ScopePage() {
                 ))}
               </div>
             )}
-            {m.text && <div className="whitespace-pre-wrap">{m.text}</div>}
+            {m.text && m.role === "assistant" && (
+              <ReactMarkdown components={markdownComponents}>{m.text}</ReactMarkdown>
+            )}
+            {m.text && m.role === "user" && <div className="whitespace-pre-wrap">{m.text}</div>}
           </div>
         ))}
         {sending && <p className="self-start text-sm text-neutral-400">Thinking…</p>}
