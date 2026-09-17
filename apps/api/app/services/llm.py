@@ -6,11 +6,14 @@ is the reliable way to get parseable structured data out of Claude.
 """
 
 import base64
+import logging
 from typing import Any
 
 import anthropic
 
 from ..config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _client() -> anthropic.Anthropic:
@@ -335,12 +338,8 @@ def analyze_reference_composition(*, image_bytes: bytes, media_type: str) -> tup
     messages = [{"role": "user", "content": content}]
     result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=800)
 
-    # Handle missing or malformed response gracefully
-    import logging
-    logger = logging.getLogger(__name__)
-
     if "composition_description" not in result:
-        logger.error(f"analyze_reference_composition: Missing 'composition_description' in result. Keys present: {list(result.keys())}, Full result: {result}")
+        logger.error("analyze_reference_composition: missing 'composition_description', got keys %s", list(result.keys()))
         raise KeyError(f"composition_description (got keys: {list(result.keys())})")
 
     return result["composition_description"], tokens
