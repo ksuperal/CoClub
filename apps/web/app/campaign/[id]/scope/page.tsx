@@ -279,7 +279,7 @@ export default function ScopePage() {
                             Upload a reference image for the visual style of {item.count > 1 ? `all ${item.count} pieces` : 'this piece'}
                           </div>
                           <input
-                            ref={(el) => (itemFileInputRefs.current[i] = el)}
+                            ref={(el) => { itemFileInputRefs.current[i] = el; }}
                             type="file"
                             accept="image/*"
                             onChange={(e) => handleItemReferenceUpload(i, e)}

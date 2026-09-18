@@ -40,6 +40,24 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3000"
 
+    # Comma-separated list of origins the browser is allowed to call this API from.
+    # Was hardcoded to localhost:3000 in main.py; now environment-driven so a
+    # deployed frontend origin doesn't need a code change to be allowed.
+    cors_allow_origins: str = "http://localhost:3000"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
+
+    # Shared secrets for machine-to-machine callers (a future second/third component),
+    # separate from end-user Supabase JWTs. Comma-separated; unused until something
+    # actually calls in with one. See db.get_service_caller.
+    service_api_keys: str = ""
+
+    @property
+    def service_api_keys_set(self) -> set[str]:
+        return {key.strip() for key in self.service_api_keys.split(",") if key.strip()}
+
     # Video generation (Step 2, video variants) — image-to-video via Luma's Ray
     # model (Luma Agents API, platform.lumalabs.ai). Optional, same "gated, not
     # broken, if unconfigured" pattern as the OAuth settings above: without a key,

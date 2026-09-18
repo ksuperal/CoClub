@@ -89,6 +89,32 @@ npm run dev
 
 Open http://localhost:3000.
 
+### 4. Or: Docker Compose
+
+Once `apps/api/.env` and `apps/web/.env.local` are filled in (step 1 still applies --
+Supabase itself isn't containerized, it stays the hosted project):
+
+```bash
+docker compose up --build
+```
+
+Same two apps (http://localhost:8000, http://localhost:3000), containerized. Set
+`NEXT_PUBLIC_API_URL`/`CORS_ALLOW_ORIGINS` env vars before `up` if the API isn't at the
+default `http://localhost:8000`.
+
+### Tests
+
+```bash
+cd apps/api
+pip install -r requirements-dev.txt
+pytest tests -v
+```
+
+Currently covers tenant isolation (a user can never read/write another user's brand or
+campaign) and the local JWT / service-key auth paths added above -- run against an
+in-memory fake of the Supabase client (`tests/conftest.py`), no real Supabase project
+needed.
+
 ## Environment variables
 
 | Var | Where | Required for MVP | Notes |
@@ -98,7 +124,9 @@ Open http://localhost:3000.
 | `SUPABASE_URL` | api, web | yes | |
 | `SUPABASE_ANON_KEY` | web | yes | used by the browser client for auth |
 | `SUPABASE_SERVICE_ROLE_KEY` | api | yes | backend writes, bypasses RLS after verifying the caller's JWT |
-| `SUPABASE_JWT_SECRET` | api | no | verifies the caller's JWT locally instead of a round-trip to Supabase; optional but recommended |
+| `SUPABASE_JWT_SECRET` | api | no | verifies the caller's JWT locally instead of a round-trip to Supabase Auth on every request; only works for a project still on the legacy shared JWT secret (newer asymmetric-signing-key projects should leave this unset, which falls back to the live Supabase Auth call) |
+| `CORS_ALLOW_ORIGINS` | api | no | comma-separated browser origins allowed to call this API; defaults to `http://localhost:3000` |
+| `SERVICE_API_KEYS` | api | no | comma-separated shared keys for machine-to-machine callers via `X-Service-Key`; unused until a second/third component actually calls in with one |
 | `DATABASE_URL` | api | no | Postgres connection string for the durable scheduler job store (Step 5's 24h feedback job). Without it, jobs live in memory only and don't survive a backend restart — fine for local dev |
 | `META_APP_ID` / `META_APP_SECRET` / `META_REDIRECT_URI` / `META_LOGIN_CONFIG_ID` | api | no | Facebook Login for Business app — covers both Facebook Page and Instagram posting. See "Social posting setup" below |
 | `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` / `TIKTOK_REDIRECT_URI` | api | no | TikTok Content Posting API app. See "Social posting setup" below |

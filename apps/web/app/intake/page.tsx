@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
@@ -51,6 +51,17 @@ function appendFiles(
 }
 
 export default function IntakePage() {
+  return (
+    <Suspense fallback={null}>
+      <IntakePageInner />
+    </Suspense>
+  );
+}
+
+// useSearchParams() (for the ?brand_id= pre-selection) opts this out of static
+// rendering and requires a Suspense boundary above it — split out so the default
+// export itself stays a plain, staticly-renderable wrapper.
+function IntakePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preSelectedBrandId = searchParams.get("brand_id");
