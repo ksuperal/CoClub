@@ -44,7 +44,13 @@ def main() -> None:
         executors={"default": ThreadPoolExecutor(MAX_CONCURRENT_JOBS)},
     )
     scheduler.add_job(
-        _heartbeat, "interval", seconds=WORKER_HEARTBEAT_SECONDS, id="heartbeat", replace_existing=True
+        _heartbeat,
+        "interval",
+        seconds=WORKER_HEARTBEAT_SECONDS,
+        id="heartbeat",
+        replace_existing=True,
+        misfire_grace_time=None,  # dropping this tick, even once, defeats the whole
+        # reason it exists — see scheduler.py's module docstring
     )
     logger.info("Worker starting — polling every %ss for due jobs.", WORKER_HEARTBEAT_SECONDS)
     scheduler.start()

@@ -6,6 +6,7 @@ is the reliable way to get parseable structured data out of Claude.
 """
 
 import base64
+import json
 import logging
 from typing import Any
 
@@ -1000,7 +1001,24 @@ def write_captions(
     user_text += f"Message angle: {message_angle}\n\nPlatforms: {', '.join(platforms)}"
     messages = [{"role": "user", "content": user_text}]
     result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=2500)
-    return result["captions"], tokens
+    captions = result["captions"]
+    # Two distinct malformed shapes confirmed live from Claude for this schema — not
+    # deterministic, happens occasionally, recover from both rather than failing:
+    if isinstance(captions, str):
+        # (1) the whole array comes back as one JSON-encoded string instead of a
+        # native array — used to crash step3_copywriting.py with a cryptic "string
+        # indices must be integers" (iterating a string's characters).
+        try:
+            captions = json.loads(captions)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Claude returned captions in an unparseable shape: {captions[:200]!r}") from exc
+    if isinstance(captions, dict) and "captions" in captions:
+        # (2) double-wrapped — {"captions": {"captions": [...]}}: the model echoed the
+        # tool's own property name as an extra nesting level around its answer.
+        captions = captions["captions"]
+    if not isinstance(captions, list) or not all(isinstance(c, dict) for c in captions):
+        raise RuntimeError(f"Claude returned captions in an unexpected shape: {captions!r:.500}")
+    return captions, tokens
 
 
 # ---------------------------------------------------------------------------

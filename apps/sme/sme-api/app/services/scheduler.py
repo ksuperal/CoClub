@@ -22,14 +22,14 @@ during business hours, so their 6-hourly polls would otherwise all cluster toget
 - Jitter on each campaign's polling schedule spreads otherwise-simultaneous jobs
   across a window instead of syncing them to the same instant.
 
-Two deliberate anti-thundering-herd measures, since many campaigns' polling jobs can
-land on the same interval boundary once there's real traffic (everyone tends to post
-during business hours, so their 6-hourly polls would otherwise all cluster together):
-- A bounded thread pool (MAX_CONCURRENT_JOBS) caps how many jobs run *at once*,
-  regardless of how many are technically due at the same moment — the rest queue and
-  drain through a fixed number of workers instead of firing simultaneously.
-- Jitter on each campaign's polling schedule spreads otherwise-simultaneous jobs
-  across a window instead of syncing them to the same instant.
+Every add_job call here sets misfire_grace_time=None. Confirmed live (not just from
+docs): with the default 1-second grace window, a worker process's heartbeat-driven
+wakeup (WORKER_HEARTBEAT_SECONDS below) can easily notice a due job a few seconds late
+— APScheduler's default response to that is to silently drop the job without ever
+running it, logging only a WARNING ("was missed by ...") with no error anywhere the
+app itself would see. That's what left a real campaign's image generation stuck at
+generation_status='generating' forever, no error recorded. misfire_grace_time=None
+means "run it whenever it's noticed, no matter how late" instead.
 """
 
 import random
@@ -88,6 +88,7 @@ def schedule_feedback_job(campaign_id: str, *, delay_hours: int = FEEDBACK_DELAY
         args=[campaign_id],
         id=f"feedback-{campaign_id}",
         replace_existing=True,
+        misfire_grace_time=None,
     )
 
 
@@ -116,6 +117,7 @@ def schedule_metrics_polling(campaign_id: str) -> None:
         args=[campaign_id],
         id=f"metrics-poll-{campaign_id}",
         replace_existing=True,
+        misfire_grace_time=None,
     )
 
 
@@ -135,6 +137,7 @@ def schedule_variant_media_generation(campaign_id: str, user_id: str, variant_id
         args=[campaign_id, user_id, variant_ids],
         id=f"generate-media-{campaign_id}",
         replace_existing=True,
+        misfire_grace_time=None,
     )
 
 
@@ -163,4 +166,5 @@ def schedule_video_generation_poll(variant_id: str) -> None:
         args=[variant_id, deadline.isoformat()],
         id=f"video-poll-{variant_id}",
         replace_existing=True,
+        misfire_grace_time=None,
     )
