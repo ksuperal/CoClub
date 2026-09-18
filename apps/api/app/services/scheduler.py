@@ -93,6 +93,25 @@ def schedule_metrics_polling(campaign_id: str) -> None:
     )
 
 
+def schedule_variant_media_generation(campaign_id: str, user_id: str, variant_ids: list[str]) -> None:
+    """One-shot, immediate background job — decouples the expensive image/video
+    generation loop (gpt-image-2 + quality-check calls, several per variant) from
+    the HTTP request that kicked it off, so a multi-variant campaign can never hold
+    a request open past a reverse proxy's timeout. Reuses the same scheduler/jobstore
+    as everything else here — durable across a process restart when DATABASE_URL is
+    set, in-memory-only otherwise, same as today."""
+    from ..pipeline.step2_variants import run_variant_media_generation_job
+
+    get_scheduler().add_job(
+        run_variant_media_generation_job,
+        "date",
+        run_date=datetime.now(timezone.utc),
+        args=[campaign_id, user_id, variant_ids],
+        id=f"generate-media-{campaign_id}",
+        replace_existing=True,
+    )
+
+
 def schedule_video_generation_poll(variant_id: str) -> None:
     """Polls one Luma video-generation job until it resolves. Much tighter
     interval than metrics polling since a variant sits blocked in 'generating'

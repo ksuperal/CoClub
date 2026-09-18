@@ -17,7 +17,7 @@ from ..models.schemas import (
     VariantOut,
     VariantPromptUpdate,
 )
-from ..pipeline.step2_variants import generate_variant_media, ideate_variants
+from ..pipeline.step2_variants import ideate_variants, start_variant_media_generation
 from ..pipeline.step3_copywriting import run_copywriting
 from ..pipeline.step4_approve_post import approve_campaign, post_campaign
 from ..pipeline.step5_feedback import refresh_metrics as _refresh_metrics
@@ -253,16 +253,17 @@ def update_variant_prompt(
 def generate_media(campaign_id: str, body: GenerateMediaRequest, user_id: str = Depends(get_current_user_id)):
     """The expensive step: generates real media only for the variants the user kept
     (possibly with edited prompts) — any other variant from this ideation round is
-    deleted, never generated. Moves the campaign through 'generating_variants' to
-    'awaiting_approval', the same end state `ideate`'s predecessor used to reach
-    directly."""
+    deleted, never generated. Moves the campaign into 'generating_variants' and hands
+    the actual generation off to a background job (services/scheduler.py) — returns
+    immediately with the selected variants now marked generation_status='generating';
+    the frontend polls GET .../variants until each reaches 'generated' or 'failed'."""
     client = get_service_client()
     campaign = _get_owned_campaign(client, campaign_id, user_id)
     if campaign["status"] != "awaiting_prompt_review":
         raise HTTPException(
             status_code=409, detail=f"Campaign is '{campaign['status']}', expected 'awaiting_prompt_review'"
         )
-    return generate_variant_media(client, user_id=user_id, campaign=campaign, variant_ids=body.variant_ids)
+    return start_variant_media_generation(client, user_id=user_id, campaign=campaign, variant_ids=body.variant_ids)
 
 
 @router.get("/{campaign_id}/variants", response_model=list[VariantOut])

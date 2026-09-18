@@ -8,7 +8,7 @@ from supabase import Client
 from ..config import get_settings
 from ..services import audio_mix, elevenlabs_music, elevenlabs_tts, image_gen, llm, luma, usage
 from ..services.files import download_asset, rasterize_pdf_pages
-from ..services.scheduler import schedule_video_generation_poll
+from ..services.scheduler import schedule_variant_media_generation, schedule_video_generation_poll
 from .product_intake import PRODUCT_ASSETS_BUCKET
 from .step1_intake import BRAND_ASSETS_BUCKET
 
@@ -768,11 +768,15 @@ def _generate_media_for_variant(
 # to keep after reviewing their (possibly edited) prompts. Deselected variants
 # are deleted here, never generated — the actual cost-saving point of this
 # whole ideate/generate split.
+#
+# Split into a fast synchronous half (this function) and a background half
+# (run_variant_media_generation_job) so a multi-variant campaign's image/video
+# generation — several minutes of sequential gpt-image-2 + quality-check calls —
+# never blocks the HTTP request past a reverse proxy's timeout. The frontend
+# polls GET .../variants for generation_status instead of waiting on this call.
 # ---------------------------------------------------------------------------
-def generate_variant_media(client: Client, *, user_id: str, campaign: dict[str, Any], variant_ids: list[str]) -> list[dict[str, Any]]:
+def start_variant_media_generation(client: Client, *, user_id: str, campaign: dict[str, Any], variant_ids: list[str]) -> list[dict[str, Any]]:
     campaign_id = campaign["id"]
-    brand_profile, product_profile = _load_profiles(client, campaign)
-    reference_images, reference_kinds, _ = _get_reference_images(client, campaign)
 
     all_variants = client.table("variants").select("id").eq("campaign_id", campaign_id).execute().data
     deselected_ids = [v["id"] for v in all_variants if v["id"] not in variant_ids]
@@ -784,9 +788,31 @@ def generate_variant_media(client: Client, *, user_id: str, campaign: dict[str, 
         raise ValueError("No matching variants selected to generate")
 
     client.table("campaigns").update({"status": "generating_variants"}).eq("id", campaign_id).execute()
+    client.table("variants").update({"generation_status": "generating"}).in_("id", variant_ids).execute()
+
+    schedule_variant_media_generation(campaign_id, user_id, variant_ids)
+
+    return client.table("variants").select("*").eq("campaign_id", campaign_id).in_("id", variant_ids).execute().data
+
+
+def run_variant_media_generation_job(campaign_id: str, user_id: str, variant_ids: list[str]) -> None:
+    """Entry point for the background job (services/scheduler.py,
+    schedule_variant_media_generation). Builds its own client — same no-HTTP-context
+    situation as poll_video_generation_job/the feedback jobs — and re-fetches
+    everything fresh rather than trusting data from the request that enqueued it."""
+    from ..db import get_service_client
+
+    client = get_service_client()
+    campaign = client.table("campaigns").select("*").eq("id", campaign_id).single().execute().data
+    if not campaign:
+        return
+
+    brand_profile, product_profile = _load_profiles(client, campaign)
+    reference_images, reference_kinds, _ = _get_reference_images(client, campaign)
+    variants = client.table("variants").select("*").eq("campaign_id", campaign_id).in_("id", variant_ids).execute().data
 
     try:
-        results = [
+        for variant in variants:
             _generate_media_for_variant(
                 client,
                 user_id=user_id,
@@ -798,13 +824,10 @@ def generate_variant_media(client: Client, *, user_id: str, campaign: dict[str, 
                 reference_kinds=reference_kinds,
                 campaign_type=campaign["campaign_type"],
             )
-            for variant in variants
-        ]
 
         client.table("campaigns").update({"status": "awaiting_approval"}).eq("id", campaign_id).execute()
-        return results
     except Exception as exc:  # noqa: BLE001
+        logger.exception("Background media generation failed for campaign %s", campaign_id)
         client.table("campaigns").update(
             {"status": "failed", "error_message": f"Step 2 (media generation) failed: {exc}"}
         ).eq("id", campaign_id).execute()
-        raise

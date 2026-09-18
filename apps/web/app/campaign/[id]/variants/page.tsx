@@ -129,6 +129,7 @@ export default function VariantsPage() {
   const [step, setStep] = useState<string | null>("Loading…");
   const [error, setError] = useState<string | null>(null);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
+  const [campaignError, setCampaignError] = useState<string | null>(null);
   const [recommendations, setRecommendations] = useState<RealPostingTimeRecommendation[]>([]);
 
   useEffect(() => {
@@ -181,6 +182,31 @@ export default function VariantsPage() {
     })();
   }, [id]);
 
+  // Media generation (image + video) now runs as a background job (Phase 2 of the
+  // architecture migration) instead of blocking the request that started it — this
+  // page can land while variants are still 'generating', so it polls until every
+  // variant reaches a terminal status ('generated'/'failed') or the campaign itself
+  // fails. Re-fires naturally on each `variants` update; stops scheduling once
+  // nothing is still generating.
+  useEffect(() => {
+    const stillGenerating = variants.some((v) => v.generation_status === "generating");
+    if (!stillGenerating || campaignError) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const [campaign, v] = await Promise.all([api.getCampaign(id), api.listVariants(id)]);
+        setVariants(v);
+        if (campaign.status === "failed") {
+          setCampaignError(campaign.error_message ?? "Media generation failed.");
+        }
+      } catch {
+        // Transient poll failure — next tick retries as long as something's still generating.
+      }
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [id, variants, campaignError]);
+
   function toggle(variantId: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -219,6 +245,11 @@ export default function VariantsPage() {
       </p>
 
       {step && <p className="text-sm text-neutral-500 mb-4">{step}</p>}
+      {campaignError && (
+        <p className="text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2 text-sm mb-4">
+          Media generation failed: {campaignError}
+        </p>
+      )}
       {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
       {warningMessage && (
         <p className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 text-sm mb-4">
@@ -266,7 +297,7 @@ export default function VariantsPage() {
               )}
               {v.media_type === "video" && !v.video_url && v.generation_status === "generating" && (
                 <p className="text-xs text-neutral-500 bg-neutral-100 rounded p-3 text-center">
-                  Generating video… this can take a few minutes. Refresh to check.
+                  Generating video… this can take a few minutes.
                 </p>
               )}
               {v.media_type === "video" && v.generation_status === "failed" && (
@@ -277,6 +308,14 @@ export default function VariantsPage() {
               {v.media_type !== "video" && v.image_url && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={v.image_url} alt={v.message_angle} className="rounded" />
+              )}
+              {v.media_type !== "video" && !v.image_url && v.generation_status === "generating" && (
+                <p className="text-xs text-neutral-500 bg-neutral-100 rounded p-3 text-center">
+                  Generating image…
+                </p>
+              )}
+              {v.media_type !== "video" && !v.image_url && v.generation_status === "failed" && (
+                <p className="text-xs text-red-600 bg-red-50 rounded p-3">Image generation failed.</p>
               )}
               <div className="flex items-center justify-between">
                 <p className="text-xs text-neutral-400">

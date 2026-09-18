@@ -32,6 +32,7 @@ class _Query:
         self._order = None
         self._op = None
         self._payload = None
+        self._single = False
 
     def select(self, *_args, **_kwargs):
         self._op = self._op or "select"
@@ -47,6 +48,10 @@ class _Query:
         self._payload = payload
         return self
 
+    def delete(self):
+        self._op = "delete"
+        return self
+
     def eq(self, key, value):
         self._filters.append(("eq", key, value))
         return self
@@ -55,8 +60,16 @@ class _Query:
         self._filters.append(("ilike", key, value))
         return self
 
+    def in_(self, key, values):
+        self._filters.append(("in", key, set(values)))
+        return self
+
     def order(self, key, desc=False):
         self._order = (key, desc)
+        return self
+
+    def single(self):
+        self._single = True
         return self
 
     def _matches(self, row):
@@ -64,6 +77,8 @@ class _Query:
             if kind == "eq" and row.get(key) != value:
                 return False
             if kind == "ilike" and str(row.get(key, "")).lower() != str(value).lower():
+                return False
+            if kind == "in" and row.get(key) not in value:
                 return False
         return True
 
@@ -74,7 +89,14 @@ class _Query:
             if self._order:
                 key, desc = self._order
                 matched.sort(key=lambda r: r.get(key), reverse=desc)
+            if self._single:
+                return _Result(matched[0] if matched else None)
             return _Result(matched)
+        if self._op == "delete":
+            kept = [r for r in rows if not self._matches(r)]
+            removed = [dict(r) for r in rows if self._matches(r)]
+            rows[:] = kept
+            return _Result(removed)
         if self._op == "insert":
             items = self._payload if isinstance(self._payload, list) else [self._payload]
             created = []
