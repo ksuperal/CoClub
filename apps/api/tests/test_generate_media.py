@@ -49,7 +49,7 @@ def test_generate_media_returns_immediately_with_generating_status(api_client, f
     dropped = _seed_variant(fake_db, campaign_id=campaign["id"])
 
     login_as("user-a")
-    resp = api_client.post(f"/campaigns/{campaign['id']}/generate-media", json={"variant_ids": [kept["id"]]})
+    resp = api_client.post(f"/v1/campaigns/{campaign['id']}/generate-media", json={"variant_ids": [kept["id"]]})
 
     assert resp.status_code == 200
     body = resp.json()
@@ -78,6 +78,6 @@ def test_generate_media_rejects_wrong_campaign_status(api_client, fake_db, login
     variant = _seed_variant(fake_db, campaign_id=campaign["id"])
 
     login_as("user-a")
-    resp = api_client.post(f"/campaigns/{campaign['id']}/generate-media", json={"variant_ids": [variant["id"]]})
+    resp = api_client.post(f"/v1/campaigns/{campaign['id']}/generate-media", json={"variant_ids": [variant["id"]]})
 
     assert resp.status_code == 409

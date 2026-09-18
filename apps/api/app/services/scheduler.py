@@ -1,9 +1,26 @@
-"""Durable delayed-job scheduler for the Step 5 feedback job and the metrics-polling
-job.
+"""Durable delayed-job scheduler for the Step 5 feedback job, the metrics-polling job,
+video polling, and (since Phase 2) media generation.
 
-APScheduler with a Postgres-backed jobstore, running inside the FastAPI process — an
-MVP simplification instead of standing up a separate Node service (BullMQ/Trigger.dev).
-Jobs survive a process restart since they're persisted in Postgres.
+APScheduler with a Postgres-backed jobstore. When DATABASE_URL is set, this process
+(the API) only ever *adds* jobs — its own scheduler is started paused and never
+resumed, so it never executes anything itself. A separate worker process
+(app/worker.py, `python -m app.worker`) is what actually runs jobs, reading from the
+same Postgres-backed store. This is what lets more than one API replica run safely:
+only the one worker process ever executes a given job, so nothing can fire twice.
+
+Without DATABASE_URL, there's no store a separate process could read from anyway (an
+in-memory jobstore is only visible within the process that created it), so this
+process's own scheduler starts unpaused and executes jobs itself instead — the same
+single-process behavior this had before the worker split, for local dev.
+
+Two deliberate anti-thundering-herd measures, since many campaigns' polling jobs can
+land on the same interval boundary once there's real traffic (everyone tends to post
+during business hours, so their 6-hourly polls would otherwise all cluster together):
+- A bounded thread pool (MAX_CONCURRENT_JOBS) caps how many jobs run *at once*,
+  regardless of how many are technically due at the same moment — the rest queue and
+  drain through a fixed number of workers instead of firing simultaneously.
+- Jitter on each campaign's polling schedule spreads otherwise-simultaneous jobs
+  across a window instead of syncing them to the same instant.
 
 Two deliberate anti-thundering-herd measures, since many campaigns' polling jobs can
 land on the same interval boundary once there's real traffic (everyone tends to post
@@ -38,6 +55,11 @@ VIDEO_POLL_INTERVAL_SECONDS = 15  # much tighter than the metrics poll — a var
 VIDEO_POLL_MAX_MINUTES = 30  # give up and mark the variant 'failed' rather than poll forever
 # if Luma never reaches a terminal status
 
+WORKER_HEARTBEAT_SECONDS = 3  # app/worker.py's no-op recurring job — see its own
+# docstring for why this exists: a separate scheduler process doesn't otherwise notice
+# a job added by a different process at all, verified directly against apscheduler's
+# actual behavior (not merely assumed from its docs).
+
 
 def get_scheduler() -> BackgroundScheduler:
     global _scheduler
@@ -47,7 +69,11 @@ def get_scheduler() -> BackgroundScheduler:
         jobstores = {"default": SQLAlchemyJobStore(url=db_url)} if db_url else {}
         executors = {"default": ThreadPoolExecutor(MAX_CONCURRENT_JOBS)}
         _scheduler = BackgroundScheduler(jobstores=jobstores, executors=executors)
-        _scheduler.start()
+        # Paused when there's a shared (Postgres) jobstore for a worker process to
+        # execute from instead — never resumed, this process only adds jobs from here
+        # on. Without one, there's nothing else that could run them, so this same
+        # scheduler stays unpaused and executes them itself, as before the split.
+        _scheduler.start(paused=bool(db_url))
     return _scheduler
 
 

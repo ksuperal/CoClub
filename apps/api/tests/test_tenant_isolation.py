@@ -50,15 +50,15 @@ def test_brand_not_visible_to_another_user(api_client, fake_db, login_as):
     brand = _seed_brand(fake_db, user_id="user-a")
 
     login_as("user-b")
-    assert api_client.get(f"/brands/{brand['id']}").status_code == 404
+    assert api_client.get(f"/v1/brands/{brand['id']}").status_code == 404
     assert (
-        api_client.patch(f"/brands/{brand['id']}", json={"name": "Hijacked"}).status_code
+        api_client.patch(f"/v1/brands/{brand['id']}", json={"name": "Hijacked"}).status_code
         == 404
     )
-    assert api_client.delete(f"/brands/{brand['id']}").status_code == 404
+    assert api_client.delete(f"/v1/brands/{brand['id']}").status_code == 404
 
     login_as("user-a")
-    owner_resp = api_client.get(f"/brands/{brand['id']}")
+    owner_resp = api_client.get(f"/v1/brands/{brand['id']}")
     assert owner_resp.status_code == 200
     assert owner_resp.json()["name"] == "Acme"
 
@@ -68,10 +68,10 @@ def test_campaign_not_visible_to_another_user(api_client, fake_db, login_as):
     campaign = _seed_campaign(fake_db, user_id="user-a", brand_id=brand["id"])
 
     login_as("user-b")
-    assert api_client.get(f"/campaigns/{campaign['id']}").status_code == 404
+    assert api_client.get(f"/v1/campaigns/{campaign['id']}").status_code == 404
 
     login_as("user-a")
-    owner_resp = api_client.get(f"/campaigns/{campaign['id']}")
+    owner_resp = api_client.get(f"/v1/campaigns/{campaign['id']}")
     assert owner_resp.status_code == 200
     assert owner_resp.json()["id"] == campaign["id"]
 
@@ -81,5 +81,5 @@ def test_brand_list_scoped_to_caller(api_client, fake_db, login_as):
     _seed_brand(fake_db, user_id="user-b", name="B's brand")
 
     login_as("user-a")
-    names = {b["name"] for b in api_client.get("/brands").json()}
+    names = {b["name"] for b in api_client.get("/v1/brands").json()}
     assert names == {"A's brand"}

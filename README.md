@@ -78,6 +78,15 @@ uvicorn app.main:app --reload
 
 Open http://localhost:8000/docs for the interactive API.
 
+The data API (brands/products/campaigns/reports/assets) is versioned under `/v1/...`
+(e.g. `/v1/brands`) — a stable contract for a future second/third component to build
+against. `/social/...` (OAuth connect/callback routes) and `/health` stay unversioned
+deliberately: two of the social routes are OAuth redirect URIs already registered in
+the Meta/TikTok developer dashboards, so versioning them would break those live
+integrations. A committed snapshot of the current schema lives at
+`apps/api/openapi.json` — regenerate it after any route change with `cd apps/api &&
+python scripts/export_openapi.py`.
+
 ### 3. Frontend (`apps/web`)
 
 ```bash
@@ -127,7 +136,7 @@ needed.
 | `SUPABASE_JWT_SECRET` | api | no | verifies the caller's JWT locally instead of a round-trip to Supabase Auth on every request; only works for a project still on the legacy shared JWT secret (newer asymmetric-signing-key projects should leave this unset, which falls back to the live Supabase Auth call) |
 | `CORS_ALLOW_ORIGINS` | api | no | comma-separated browser origins allowed to call this API; defaults to `http://localhost:3000` |
 | `SERVICE_API_KEYS` | api | no | comma-separated shared keys for machine-to-machine callers via `X-Service-Key`; unused until a second/third component actually calls in with one |
-| `DATABASE_URL` | api | no | Postgres connection string for the durable scheduler job store (Step 5's 24h feedback job). Without it, jobs live in memory only and don't survive a backend restart — fine for local dev |
+| `DATABASE_URL` | api, worker | no | Postgres connection string for the durable scheduler job store (video polling, metrics polling, the feedback job, media generation). Without it, jobs live in memory only, don't survive a restart, and the `api` process executes them itself — fine for local dev. **With** it set, the separate `worker` process becomes the one that actually runs jobs (`api` only enqueues them) — see "Background jobs" below |
 | `META_APP_ID` / `META_APP_SECRET` / `META_REDIRECT_URI` / `META_LOGIN_CONFIG_ID` | api | no | Facebook Login for Business app — covers both Facebook Page and Instagram posting. See "Social posting setup" below |
 | `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` / `TIKTOK_REDIRECT_URI` | api | no | TikTok Content Posting API app. See "Social posting setup" below |
 | `SOCIAL_TOKEN_ENCRYPTION_KEY` | api | only if connecting accounts | encrypts stored account tokens at rest; generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
@@ -191,6 +200,25 @@ Each `variants` row also tracks its own `generation_status`
 campaign's status and of the variant's approve/reject `status` — a video variant in
 particular can still be `generating` in the background (polled separately) after the
 campaign has already moved on to `awaiting_approval`.
+
+## Background jobs
+
+Video polling, metrics polling, the 24h feedback job, and media generation
+(image/video) all run through `apps/api/app/services/scheduler.py`, an APScheduler
+instance backed by Postgres when `DATABASE_URL` is set.
+
+- **`DATABASE_URL` unset** (default for local dev): the `api` process both enqueues
+  and executes these itself, in-process — simplest setup, nothing else to run, but
+  jobs don't survive an `api` restart and don't scale past one replica.
+- **`DATABASE_URL` set**: `api` only *enqueues* jobs (its own scheduler starts paused
+  and never executes anything) — a separate `worker` process (`apps/api/app/worker.py`,
+  run with `python -m app.worker`, already wired up as its own service in
+  `docker-compose.yml`) is what actually runs them, reading from the same Postgres
+  jobstore. This is what makes it safe to eventually run more than one `api` replica —
+  only the one worker process ever executes a given job, so nothing can fire twice.
+  Outside Docker, run it yourself in a second terminal: `cd apps/api && uvicorn
+  app.main:app --reload` in one, `python -m app.worker` in another, both pointed at
+  the same `DATABASE_URL`.
 
 ## Notes on scope
 

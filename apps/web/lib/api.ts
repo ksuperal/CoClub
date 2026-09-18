@@ -54,66 +54,66 @@ async function uploadFiles(endpoint: string, files: File[]): Promise<string[]> {
 }
 
 export const api = {
-  uploadBrandAssets: (files: File[]) => uploadFiles("/assets/brand-guideline", files),
+  uploadBrandAssets: (files: File[]) => uploadFiles("/v1/assets/brand-guideline", files),
 
-  uploadMoodboardAssets: (files: File[]) => uploadFiles("/assets/moodboard", files),
+  uploadMoodboardAssets: (files: File[]) => uploadFiles("/v1/assets/moodboard", files),
 
-  uploadVariantReference: (file: File) => uploadFile("/assets/variant-reference", file),
+  uploadVariantReference: (file: File) => uploadFile("/v1/assets/variant-reference", file),
 
   createBrand: (body: { name: string; description?: string; guideline_raw_text: string; guideline_asset_paths: string[] }) =>
-    request<any>("/brands", { method: "POST", body: JSON.stringify(body) }),
+    request<any>("/v1/brands", { method: "POST", body: JSON.stringify(body) }),
 
-  listBrands: () => request<any[]>("/brands"),
+  listBrands: () => request<any[]>("/v1/brands"),
 
-  getBrand: (id: string) => request<any>(`/brands/${id}`),
+  getBrand: (id: string) => request<any>(`/v1/brands/${id}`),
 
   updateBrand: (id: string, body: { name: string; description?: string; brand_voice_id?: string }) =>
-    request<any>(`/brands/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    request<any>(`/v1/brands/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 
-  deleteBrand: (id: string) => request(`/brands/${id}`, { method: "DELETE" }),
+  deleteBrand: (id: string) => request(`/v1/brands/${id}`, { method: "DELETE" }),
 
-  getAvailableVoices: () => request<Array<{ voice_id: string; name: string; description: string }>>("/brands/voices/available"),
+  getAvailableVoices: () => request<Array<{ voice_id: string; name: string; description: string }>>("/v1/brands/voices/available"),
 
-  uploadProductAssets: (files: File[]) => uploadFiles("/assets/product", files),
+  uploadProductAssets: (files: File[]) => uploadFiles("/v1/assets/product", files),
 
   createProduct: (body: {
     brand_id: string;
     name: string;
     description_text?: string;
     asset_paths: string[];
-  }) => request<any>("/products", { method: "POST", body: JSON.stringify(body) }),
+  }) => request<any>("/v1/products", { method: "POST", body: JSON.stringify(body) }),
 
-  listProducts: (brand_id?: string) => request<any[]>(`/products${brand_id ? `?brand_id=${brand_id}` : ""}`),
+  listProducts: (brand_id?: string) => request<any[]>(`/v1/products${brand_id ? `?brand_id=${brand_id}` : ""}`),
 
-  getProduct: (id: string) => request<any>(`/products/${id}`),
+  getProduct: (id: string) => request<any>(`/v1/products/${id}`),
 
   updateProduct: (id: string, body: { name: string; description_text?: string; brand_id: string; asset_paths: string[] }) =>
-    request<any>(`/products/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    request<any>(`/v1/products/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 
-  deleteProduct: (id: string) => request(`/products/${id}`, { method: "DELETE" }),
+  deleteProduct: (id: string) => request(`/v1/products/${id}`, { method: "DELETE" }),
 
   createCampaign: (body: {
     brand_id: string;
     product_id?: string | null;
     campaign_type: string;
     brief: string;
-  }) => request<any>("/campaigns", { method: "POST", body: JSON.stringify(body) }),
+  }) => request<any>("/v1/campaigns", { method: "POST", body: JSON.stringify(body) }),
 
-  listCampaigns: () => request<any[]>("/campaigns"),
+  listCampaigns: () => request<any[]>("/v1/campaigns"),
 
-  getCampaign: (id: string) => request<any>(`/campaigns/${id}`),
+  getCampaign: (id: string) => request<any>(`/v1/campaigns/${id}`),
 
   sendScopeMessage: (id: string, text: string, image_urls?: string[]) =>
     request<
       | { kind: "question"; text: string }
       | { kind: "plan"; items: any[]; summary: string }
-    >(`/campaigns/${id}/scope/messages`, {
+    >(`/v1/campaigns/${id}/scope/messages`, {
       method: "POST",
       body: JSON.stringify({ text, image_urls }),
     }),
 
   confirmScope: (id: string, plan_item_references?: (string | null)[]) =>
-    request<any[]>(`/campaigns/${id}/scope/confirm`, {
+    request<any[]>(`/v1/campaigns/${id}/scope/confirm`, {
       method: "POST",
       body: JSON.stringify({ plan_item_references: plan_item_references || [] }),
     }),
@@ -123,38 +123,38 @@ export const api = {
     variantId: string,
     body: { image_prompt: string; motion_prompt?: string; voiceover_script?: string; voice_instructions?: string; music_prompt?: string }
   ) =>
-    request<any>(`/campaigns/${campaignId}/variants/${variantId}/prompt`, {
+    request<any>(`/v1/campaigns/${campaignId}/variants/${variantId}/prompt`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
 
   generateMedia: (id: string, variant_ids: string[]) =>
-    request<any[]>(`/campaigns/${id}/generate-media`, { method: "POST", body: JSON.stringify({ variant_ids }) }),
+    request<any[]>(`/v1/campaigns/${id}/generate-media`, { method: "POST", body: JSON.stringify({ variant_ids }) }),
 
-  listVariants: (id: string) => request<any[]>(`/campaigns/${id}/variants`),
+  listVariants: (id: string) => request<any[]>(`/v1/campaigns/${id}/variants`),
 
-  generateCopy: (id: string) => request<any[]>(`/campaigns/${id}/generate-copy`, { method: "POST" }),
+  generateCopy: (id: string) => request<any[]>(`/v1/campaigns/${id}/generate-copy`, { method: "POST" }),
 
-  listCaptions: (id: string) => request<any[]>(`/campaigns/${id}/captions`),
+  listCaptions: (id: string) => request<any[]>(`/v1/campaigns/${id}/captions`),
 
   updateCaption: (campaignId: string, captionId: string, body: { caption_text: string; hashtags: string[] }) =>
-    request<any>(`/campaigns/${campaignId}/captions/${captionId}`, {
+    request<any>(`/v1/campaigns/${campaignId}/captions/${captionId}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
 
   approve: (id: string, approved_variant_ids: string[]) =>
-    request(`/campaigns/${id}/approve`, { method: "POST", body: JSON.stringify({ approved_variant_ids }) }),
+    request(`/v1/campaigns/${id}/approve`, { method: "POST", body: JSON.stringify({ approved_variant_ids }) }),
 
-  post: (id: string) => request<any[]>(`/campaigns/${id}/post`, { method: "POST" }),
+  post: (id: string) => request<any[]>(`/v1/campaigns/${id}/post`, { method: "POST" }),
 
-  getReport: (id: string) => request<any>(`/campaigns/${id}/report`),
+  getReport: (id: string) => request<any>(`/v1/campaigns/${id}/report`),
 
-  runReportNow: (id: string) => request<any>(`/campaigns/${id}/report/run-now`, { method: "POST" }),
+  runReportNow: (id: string) => request<any>(`/v1/campaigns/${id}/report/run-now`, { method: "POST" }),
 
-  refreshMetrics: (id: string) => request<any[]>(`/campaigns/${id}/metrics/refresh`, { method: "POST" }),
+  refreshMetrics: (id: string) => request<any[]>(`/v1/campaigns/${id}/metrics/refresh`, { method: "POST" }),
 
-  getMetricsHistory: (id: string) => request<any[]>(`/campaigns/${id}/metrics/history`),
+  getMetricsHistory: (id: string) => request<any[]>(`/v1/campaigns/${id}/metrics/history`),
 
   listSocialAccounts: () => request<any[]>("/social/accounts"),
 

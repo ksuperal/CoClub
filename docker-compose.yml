@@ -11,6 +11,18 @@ services:
     environment:
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3000}
 
+  # Executes background jobs (video polling, metrics polling, the feedback job, media
+  # generation) — the api service above only *adds* them once DATABASE_URL is set (see
+  # services/scheduler.py). Same image as api, just a different foreground command; no
+  # ports, it's not an HTTP server. Does nothing useful without DATABASE_URL set in
+  # apps/api/.env — see README.md.
+  worker:
+    build:
+      context: ./apps/api
+    command: ["python", "-m", "app.worker"]
+    env_file:
+      - ./apps/api/.env
+
   web:
     build:
       context: ./apps/web
