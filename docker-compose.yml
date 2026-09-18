@@ -1,31 +1,31 @@
 services:
-  api:
+  sme-api:
     build:
-      context: ./apps/api
+      context: ./apps/sme/sme-api
     ports:
       - "8000:8000"
     env_file:
-      - ./apps/api/.env
+      - ./apps/sme/sme-api/.env
     # Confirmed with the browser (Origin: http://localhost:3000) — for a different
-    # host/port, override CORS_ALLOW_ORIGINS in apps/api/.env.
+    # host/port, override CORS_ALLOW_ORIGINS in apps/sme/sme-api/.env.
     environment:
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3000}
 
   # Executes background jobs (video polling, metrics polling, the feedback job, media
-  # generation) — the api service above only *adds* them once DATABASE_URL is set (see
-  # services/scheduler.py). Same image as api, just a different foreground command; no
-  # ports, it's not an HTTP server. Does nothing useful without DATABASE_URL set in
-  # apps/api/.env — see README.md.
-  worker:
+  # generation) — the sme-api service above only *adds* them once DATABASE_URL is set
+  # (see services/scheduler.py). Same image as sme-api, just a different foreground
+  # command; no ports, it's not an HTTP server. Does nothing useful without
+  # DATABASE_URL set in apps/sme/sme-api/.env — see README.md.
+  sme-worker:
     build:
-      context: ./apps/api
+      context: ./apps/sme/sme-api
     command: ["python", "-m", "app.worker"]
     env_file:
-      - ./apps/api/.env
+      - ./apps/sme/sme-api/.env
 
-  web:
+  sme-web:
     build:
-      context: ./apps/web
+      context: ./apps/sme/sme-web
       args:
         # Baked in at build time (Next.js NEXT_PUBLIC_* rule) — must be the
         # browser-reachable API URL, not the in-network service name, since
@@ -35,12 +35,12 @@ services:
         # triggers while statically prerendering pages — runtime env_file alone
         # isn't enough. `build.env_file` isn't supported by this Compose schema
         # version, so these come from the root .env Compose auto-loads for `${...}`
-        # substitution (mirror apps/web/.env.local's values there — see README).
+        # substitution (mirror apps/sme/sme-web/.env.local's values there — see README).
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     ports:
       - "3000:3000"
     env_file:
-      - ./apps/web/.env.local
+      - ./apps/sme/sme-web/.env.local
     depends_on:
-      - api
+      - sme-api

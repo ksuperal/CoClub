@@ -5,9 +5,9 @@ this out means the API process stays a plain request/response server: running mo
 than one API replica no longer risks the same job firing twice, since only this one
 process ever executes anything.
 
-Run with: `python -m app.worker` (from apps/api — see docker-compose.yml's `worker`
-service). Requires DATABASE_URL: a worker with no shared jobstore to read from has
-nothing to do, so it fails fast rather than silently idling forever.
+Run with: `python -m app.worker` (from apps/sme/sme-api — see docker-compose.yml's
+`sme-worker` service). Requires DATABASE_URL: a worker with no shared jobstore to read
+from has nothing to do, so it fails fast rather than silently idling forever.
 """
 
 import logging

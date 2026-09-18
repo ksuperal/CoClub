@@ -1,9 +1,9 @@
-"""Dumps the current OpenAPI schema to a committed file (apps/api/openapi.json), so a
-future integration (a second or third component) has a durable, offline contract to
-code against instead of only a live /openapi.json on a running server.
+"""Dumps the current OpenAPI schema to a committed file (apps/sme/sme-api/openapi.json),
+so a future integration (a second or third component) has a durable, offline contract
+to code against instead of only a live /openapi.json on a running server.
 
 Re-run and commit the result after any route change:
-    cd apps/api && python scripts/export_openapi.py
+    cd apps/sme/sme-api && python scripts/export_openapi.py
 """
 
 import json

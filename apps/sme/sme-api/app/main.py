@@ -22,7 +22,8 @@ app.add_middleware(
 )
 
 # Versioned data API — a future second/third component gets a stable contract to code
-# against (see apps/api/openapi.json, apps/api/scripts/export_openapi.py). social.router
+# against (see apps/sme/sme-api/openapi.json, apps/sme/sme-api/scripts/export_openapi.py).
+# social.router
 # stays unversioned deliberately: two of its routes (/social/callback/facebook,
 # /social/callback/tiktok) are OAuth redirect URIs already registered in the Meta and
 # TikTok developer dashboards — versioning them would break those live integrations.

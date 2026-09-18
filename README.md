@@ -48,11 +48,28 @@ campaigns through a conversational scoping step and a 5-step pipeline.
 
 ```
 apps/
-  api/        FastAPI backend — the pipeline lives here
-  web/        Next.js frontend — minimal UI to drive the pipeline
+  sme/
+    sme-api/              FastAPI backend — the pipeline lives here
+    sme-web/              Next.js frontend — minimal UI to drive the pipeline
+
+  influencer/
+    influencer-api/       scaffold only — see its README, not yet built
+    influencer-web/       scaffold only — see its README, not yet built
+
+  recommendation/
+    recommendation-api/   scaffold only — see its README, not yet built
+    recommendation-web/   scaffold only — see its README, not yet built
 supabase/
-  migrations/ Postgres schema + RLS policies
+  migrations/             Postgres schema + RLS policies (CoClub/SME's own —
+                          the scaffolded components above get their own
+                          database each, not this one)
 ```
+
+CoClub (`sme-api`/`sme-web` above) is one of three planned components —
+Influencer and Recommendation are the other two, currently empty scaffolds
+(folders + a README each explaining intent) until their functionality is
+designed. Each component's api+web pair is grouped under its own folder
+(`apps/sme/`, `apps/influencer/`, `apps/recommendation/`).
 
 ## Setup
 
@@ -65,10 +82,10 @@ policies, storage buckets) rather than one big init script now. This creates all
 tables, enables RLS, and adds the `brand-assets` and `product-assets` storage buckets
 (moodboard and variant-reference images also live in `brand-assets`).
 
-### 2. Backend (`apps/api`)
+### 2. Backend (`apps/sme/sme-api`)
 
 ```bash
-cd apps/api
+cd apps/sme/sme-api
 python -m venv .venv
 .venv/Scripts/activate   # Windows
 pip install -r requirements.txt
@@ -84,13 +101,13 @@ against. `/social/...` (OAuth connect/callback routes) and `/health` stay unvers
 deliberately: two of the social routes are OAuth redirect URIs already registered in
 the Meta/TikTok developer dashboards, so versioning them would break those live
 integrations. A committed snapshot of the current schema lives at
-`apps/api/openapi.json` — regenerate it after any route change with `cd apps/api &&
-python scripts/export_openapi.py`.
+`apps/sme/sme-api/openapi.json` — regenerate it after any route change with `cd
+apps/sme/sme-api && python scripts/export_openapi.py`.
 
-### 3. Frontend (`apps/web`)
+### 3. Frontend (`apps/sme/sme-web`)
 
 ```bash
-cd apps/web
+cd apps/sme/sme-web
 npm install
 cp .env.example .env.local   # fill in keys
 npm run dev
@@ -100,7 +117,7 @@ Open http://localhost:3000.
 
 ### 4. Or: Docker Compose
 
-Once `apps/api/.env` and `apps/web/.env.local` are filled in (step 1 still applies --
+Once `apps/sme/sme-api/.env` and `apps/sme/sme-web/.env.local` are filled in (step 1 still applies --
 Supabase itself isn't containerized, it stays the hosted project):
 
 ```bash
@@ -114,7 +131,7 @@ default `http://localhost:8000`.
 ### Tests
 
 ```bash
-cd apps/api
+cd apps/sme/sme-api
 pip install -r requirements-dev.txt
 pytest tests -v
 ```
@@ -182,8 +199,8 @@ the API with a persistent tunnel (e.g. `devtunnel host <name>` after `devtunnel 
 every restart, which then has to be re-registered in both `.env` and each developer dashboard.
 
 Users connect their own accounts from `/settings/social` in the web app — this drives the
-OAuth flow in `apps/api/app/routers/social.py`, which stores encrypted tokens in the
-`social_accounts` table (`apps/api/app/services/crypto.py`).
+OAuth flow in `apps/sme/sme-api/app/routers/social.py`, which stores encrypted tokens in
+the `social_accounts` table (`apps/sme/sme-api/app/services/crypto.py`).
 
 ## Status model
 
@@ -204,21 +221,21 @@ campaign has already moved on to `awaiting_approval`.
 ## Background jobs
 
 Video polling, metrics polling, the 24h feedback job, and media generation
-(image/video) all run through `apps/api/app/services/scheduler.py`, an APScheduler
-instance backed by Postgres when `DATABASE_URL` is set.
+(image/video) all run through `apps/sme/sme-api/app/services/scheduler.py`, an
+APScheduler instance backed by Postgres when `DATABASE_URL` is set.
 
-- **`DATABASE_URL` unset** (default for local dev): the `api` process both enqueues
-  and executes these itself, in-process — simplest setup, nothing else to run, but
-  jobs don't survive an `api` restart and don't scale past one replica.
-- **`DATABASE_URL` set**: `api` only *enqueues* jobs (its own scheduler starts paused
-  and never executes anything) — a separate `worker` process (`apps/api/app/worker.py`,
-  run with `python -m app.worker`, already wired up as its own service in
-  `docker-compose.yml`) is what actually runs them, reading from the same Postgres
-  jobstore. This is what makes it safe to eventually run more than one `api` replica —
-  only the one worker process ever executes a given job, so nothing can fire twice.
-  Outside Docker, run it yourself in a second terminal: `cd apps/api && uvicorn
-  app.main:app --reload` in one, `python -m app.worker` in another, both pointed at
-  the same `DATABASE_URL`.
+- **`DATABASE_URL` unset** (default for local dev): the `sme-api` process both
+  enqueues and executes these itself, in-process — simplest setup, nothing else to
+  run, but jobs don't survive an `sme-api` restart and don't scale past one replica.
+- **`DATABASE_URL` set**: `sme-api` only *enqueues* jobs (its own scheduler starts
+  paused and never executes anything) — a separate `sme-worker` process
+  (`apps/sme/sme-api/app/worker.py`, run with `python -m app.worker`, already wired
+  up as its own service in `docker-compose.yml`) is what actually runs them, reading
+  from the same Postgres jobstore. This is what makes it safe to eventually run more
+  than one `sme-api` replica — only the one worker process ever executes a given job,
+  so nothing can fire twice. Outside Docker, run it yourself in a second terminal:
+  `cd apps/sme/sme-api && uvicorn app.main:app --reload` in one, `python -m
+  app.worker` in another, both pointed at the same `DATABASE_URL`.
 
 ## Notes on scope
 
