@@ -948,7 +948,9 @@ def write_captions(
             "- Tone: Story-driven, authentic, visually descriptive\n"
             "- Emojis: Use 2-4 relevant emojis to break up text and add personality\n"
             "- Call-to-action: Include clear CTA (save this, share with, tag someone, link in bio)\n"
-            "- Hashtags: 8-15 hashtags mixing popular (#10k-500k posts), niche (#1k-10k), and branded\n"
+            "- Hashtags: MUST follow this exact structure: Brand hashtag, Product hashtag, Benefit hashtag, Lifestyle hashtag. "
+            "Total 4 core hashtags following this pattern (you may add 2-3 additional relevant hashtags for discovery, "
+            "but the first 4 MUST follow: #Brand #Product #Benefit #Lifestyle)\n"
             "- Strategy: Front-load value, create curiosity, encourage engagement\n"
             "- Avoid: Hashtag spam (30+), generic CTAs ('check this out'), overly salesy language"
         ),
@@ -959,7 +961,9 @@ def write_captions(
             "- Tone: Conversational, casual, trend-aware, community-first (not corporate)\n"
             "- Emojis: 1-3 emojis maximum, only if genuinely relevant\n"
             "- Engagement: Pose questions, invite duets/stitches, spark conversation\n"
-            "- Hashtags: 3-5 hashtags - mix trending (#FYP, #ForYou) with niche category tags\n"
+            "- Hashtags: MUST follow this exact structure: Brand hashtag, Product hashtag, Story/Extended Benefit hashtag. "
+            "Total 3 core hashtags following this pattern (you may add 1-2 trending tags like #FYP or #ForYou, "
+            "but the first 3 MUST follow: #Brand #Product #StoryOrExtendedBenefit)\n"
             "- Strategy: Sound like a person, not a brand; create FOMO or relatability\n"
             "- Avoid: Long captions, excessive hashtags, obvious ads, overly polished corporate speak"
         ),
@@ -970,7 +974,9 @@ def write_captions(
             "- Tone: Conversational, community-building, informative, relatable\n"
             "- Emojis: Use sparingly (1-2) for emphasis, not decoration\n"
             "- Engagement: Ask questions, create discussion, encourage shares\n"
-            "- Hashtags: 1-3 hashtags maximum (Facebook doesn't prioritize hashtags like IG/TikTok)\n"
+            "- Hashtags: MUST follow this exact structure: Brand hashtag, Product hashtag, Campaign/Descriptive hashtag. "
+            "Total 3 hashtags following this pattern only (Facebook doesn't prioritize hashtags, so keep it minimal: "
+            "#Brand #Product #CampaignDescriptive)\n"
             "- Strategy: Tell complete stories, provide context, build trust\n"
             "- Avoid: Hashtag stuffing, clickbait, overly promotional language"
         ),
