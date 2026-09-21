@@ -96,7 +96,18 @@ export const api = {
     brand_id: string;
     product_id?: string | null;
     campaign_type: string;
-    brief: string;
+    brief?: string;
+    structured_brief?: {
+      objective?: string;
+      target_audience?: string;
+      single_minded_message?: string;
+      usp?: string;
+      reason_to_believe?: string;
+      cta?: string;
+      mandatory_information?: string;
+      reference?: string;
+      format?: string;
+    };
   }) => request<any>("/v1/campaigns", { method: "POST", body: JSON.stringify(body) }),
 
   listCampaigns: () => request<any[]>("/v1/campaigns"),
