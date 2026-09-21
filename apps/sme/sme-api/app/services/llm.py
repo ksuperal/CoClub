@@ -915,6 +915,9 @@ def write_captions(
     product_profile: dict[str, Any] | None = None,
     campaign_type: str,
     platforms: list[str],
+    product_url: str | None = None,
+    campaign_id: str | None = None,
+    variant_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     tool = {
         "name": "record_captions",
@@ -1024,6 +1027,25 @@ def write_captions(
         captions = captions["captions"]
     if not isinstance(captions, list) or not all(isinstance(c, dict) for c in captions):
         raise RuntimeError(f"Claude returned captions in an unexpected shape: {captions!r:.500}")
+
+    # Add UTM-tagged product link to each caption if provided
+    if product_url and campaign_id:
+        from . import utm_tracking
+
+        for caption in captions:
+            platform = caption.get("platform", "")
+            if platform:
+                # Generate UTM link for this platform
+                utm_link = utm_tracking.generate_utm_link(
+                    base_url=product_url,
+                    campaign_id=campaign_id,
+                    platform=platform,
+                    variant_id=variant_id,
+                )
+
+                # Append link to caption with emoji
+                caption["caption_text"] = f"{caption['caption_text']}\n\n🛒 {utm_link}"
+
     return captions, tokens
 
 

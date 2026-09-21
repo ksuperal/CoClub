@@ -93,6 +93,17 @@ class Settings(BaseSettings):
     def elevenlabs_enabled(self) -> bool:
         return bool(self.elevenlabs_api_key)
 
+    # Meta Pixel & Conversions API for tracking add-to-cart, purchases, etc.
+    # Optional — if unconfigured, conversion tracking is unavailable but the app
+    # still runs (same "gated, not broken" pattern as OAuth/Luma/ElevenLabs above).
+    meta_pixel_id: str | None = None
+    meta_conversions_api_token: str | None = None
+    meta_pixel_test_code: str | None = None  # For testing in Meta Events Manager
+
+    @property
+    def meta_pixel_enabled(self) -> bool:
+        return bool(self.meta_pixel_id and self.meta_conversions_api_token)
+
 
 @lru_cache
 def get_settings() -> Settings:

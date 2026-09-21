@@ -23,6 +23,8 @@ SCOPES = [
     "pages_manage_posts",
     "instagram_basic",
     "instagram_content_publish",
+    "instagram_manage_insights",  # Required for Instagram Insights API (reach, saves, watch time, etc.)
+    "read_insights",              # Optional: for advanced Facebook Page-level insights
     "business_management",
 ]
 

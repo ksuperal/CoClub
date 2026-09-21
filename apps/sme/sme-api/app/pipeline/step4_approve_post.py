@@ -3,7 +3,7 @@ from typing import Any
 
 from supabase import Client
 
-from ..services import social
+from ..services import follower_tracking, social
 from ..services.scheduler import schedule_feedback_job, schedule_metrics_polling
 
 
@@ -81,6 +81,26 @@ def post_campaign(client: Client, *, campaign_id: str, user_id: str) -> list[dic
                 created_posts.append(row.data[0])
 
         client.table("campaigns").update({"status": "posted"}).eq("id", campaign_id).execute()
+
+        # Track baseline follower count for each platform posted to (for branding metrics)
+        platforms_posted = set(p["platform"] for p in created_posts if p["status"] == "posted")
+        for platform in platforms_posted:
+            try:
+                follower_tracking.update_follower_count(client, user_id=user_id, platform=platform)
+            except Exception:  # noqa: BLE001
+                # Don't fail the whole campaign if follower tracking fails
+                pass
+
+        # Store baseline follower counts in campaign for growth calculation later (24hr comparison)
+        if platforms_posted:
+            try:
+                follower_tracking.store_baseline_follower_counts(
+                    client, campaign_id=campaign_id, user_id=user_id, platforms=list(platforms_posted)
+                )
+            except Exception:  # noqa: BLE001
+                # Don't fail the whole campaign if baseline storage fails
+                pass
+
         schedule_feedback_job(campaign_id)
         # Only worth polling if something actually landed — a campaign where every
         # post came back pending_credentials/failed has nothing for refresh_metrics

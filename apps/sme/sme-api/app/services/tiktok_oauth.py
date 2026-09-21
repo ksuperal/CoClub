@@ -4,6 +4,8 @@ Requires a TikTok Developer App with the Content Posting API product, the `video
 scope requested (same scope name covers photo posting — there's no separate photo scope),
 and an app audit before posts can go public. Until audited, posts land as private/draft,
 visible only to the connecting account — see README.md.
+
+Enhanced with Display API (`video.list`) to fetch basic video metrics (views, likes, comments, shares).
 """
 
 from typing import Any
@@ -13,7 +15,9 @@ import httpx
 
 from ..config import get_settings
 
-SCOPES = ["user.info.basic", "video.publish"]
+# video.list requires Display API product to be enabled in your TikTok app
+# user.info.stats is required for follower count tracking
+SCOPES = ["user.info.basic", "video.publish", "video.list", "user.info.stats"]
 
 TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
 

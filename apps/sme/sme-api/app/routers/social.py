@@ -17,7 +17,7 @@ from supabase import Client
 from ..config import get_settings
 from ..db import get_current_user_id, get_service_client
 from ..models.schemas import Platform, PostingTimeRecommendation
-from ..services import crypto, meta_oauth, oauth_state, posting_time, tiktok_oauth
+from ..services import crypto, follower_tracking, meta_oauth, oauth_state, posting_time, tiktok_oauth
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +161,41 @@ def get_posting_time_recommendation(platform: Platform, user_id: str = Depends(g
     for everyone today; that's expected, not a bug."""
     client = get_service_client()
     return posting_time.recommend_posting_hour(client, user_id=user_id, platform=platform)
+
+
+@router.post("/social/accounts/{platform}/refresh-followers")
+def refresh_follower_count(
+    platform: Platform,
+    user_id: str = Depends(get_current_user_id)
+) -> dict[str, Any]:
+    """Manually refresh follower count for a platform.
+
+    This fetches the current follower/fan count from the platform's API
+    and updates it in the database. Useful for tracking follower growth
+    over time for branding content metrics.
+    """
+    client = get_service_client()
+    success = follower_tracking.update_follower_count(
+        client, user_id=user_id, platform=platform
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to fetch follower count for {platform}. Account may not be connected or API may be unavailable."
+        )
+
+    # Return updated account info
+    account = (
+        client.table("social_accounts")
+        .select("platform, follower_count, follower_count_updated_at")
+        .eq("user_id", user_id)
+        .eq("platform", platform)
+        .single()
+        .execute()
+        .data
+    )
+    return account
 
 
 @router.delete("/social/accounts/{account_id}", status_code=204)

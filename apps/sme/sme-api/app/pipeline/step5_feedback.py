@@ -13,7 +13,7 @@ import logging
 from typing import Any
 
 from ..db import get_service_client
-from ..services import llm, social, usage
+from ..services import follower_tracking, llm, social, usage
 from ..services.scoring import engagement_score
 
 logger = logging.getLogger(__name__)
@@ -91,6 +91,9 @@ def run_feedback_job(campaign_id: str) -> None:
     fresh_metrics = refresh_metrics(client, campaign_id)
     metrics_by_post_id = {m["post_id"]: m for m in fresh_metrics}
 
+    # Calculate follower growth during this campaign (for branding content metrics)
+    follower_growth = follower_tracking.calculate_campaign_follower_growth(client, campaign_id=campaign_id)
+
     verdicts: list[dict[str, Any]] = []
 
     for variant in variants:
@@ -140,6 +143,7 @@ def run_feedback_job(campaign_id: str) -> None:
             "summary_text": summary_text,
             "top_variant_id": top_variant_id,
             "verdicts": verdicts,
+            "follower_growth": follower_growth,
         }
     ).execute()
 

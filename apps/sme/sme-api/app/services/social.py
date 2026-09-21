@@ -304,9 +304,192 @@ def _post_video_to_tiktok(account: dict[str, Any], caption_text: str, hashtags: 
     return _tiktok_publish_result(resp.json())
 
 
+def _fetch_facebook_metrics(
+    account: dict[str, Any], external_post_id: str, media_type: str, zeros: dict[str, int | float]
+) -> dict[str, int | float]:
+    """Fetch Facebook post metrics including basic engagement + Page Insights data."""
+    token = crypto.decrypt(account["access_token_encrypted"])
+    settings = get_settings()
+    result = zeros.copy()
+
+    # Step 1: Fetch basic engagement metrics
+    fields = (
+        "likes.summary(true),comments.summary(true),views"
+        if media_type == "video"
+        else "likes.summary(true),comments.summary(true),shares"
+    )
+    resp = httpx.get(
+        f"https://graph.facebook.com/{settings.meta_graph_version}/{external_post_id}",
+        params={"fields": fields, "access_token": token},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    result["likes"] = data.get("likes", {}).get("summary", {}).get("total_count", 0)
+    result["comments"] = data.get("comments", {}).get("summary", {}).get("total_count", 0)
+    result["shares"] = data.get("shares", {}).get("count", 0)
+    result["views"] = data.get("views", 0)
+
+    # Step 2: Fetch Page Insights metrics (requires pages_read_engagement permission)
+    try:
+        insights_resp = httpx.get(
+            f"https://graph.facebook.com/{settings.meta_graph_version}/{external_post_id}/insights",
+            params={
+                "metric": "post_impressions,post_clicks,post_engaged_users",
+                "access_token": token,
+            },
+            timeout=30,
+        )
+        if insights_resp.status_code == 200:
+            insights_data = insights_resp.json().get("data", [])
+            for insight in insights_data:
+                metric_name = insight.get("name")
+                values = insight.get("values", [])
+                if values and len(values) > 0:
+                    value = values[0].get("value", 0)
+                    if metric_name == "post_impressions":
+                        result["impressions"] = value
+                    elif metric_name == "post_clicks":
+                        result["post_clicks"] = value
+                    elif metric_name == "post_engaged_users":
+                        result["reach"] = value  # post_engaged_users is a proxy for reach
+    except Exception:  # noqa: BLE001
+        # Insights API might fail if permission not granted - continue with basic metrics
+        logger.warning("Facebook Insights API failed for post %s, using basic metrics only", external_post_id)
+
+    return result
+
+
+def _fetch_instagram_metrics(
+    account: dict[str, Any], external_post_id: str, media_type: str, zeros: dict[str, int | float]
+) -> dict[str, int | float]:
+    """Fetch Instagram post metrics including basic engagement + Insights data."""
+    token = crypto.decrypt(account["access_token_encrypted"])
+    settings = get_settings()
+    result = zeros.copy()
+
+    # Step 1: Fetch basic engagement metrics
+    if media_type == "video":
+        # Instagram Reels - use flat count fields
+        resp = httpx.get(
+            f"https://graph.facebook.com/{settings.meta_graph_version}/{external_post_id}",
+            params={"fields": "like_count,comments_count", "access_token": token},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        result["likes"] = data.get("like_count", 0)
+        result["comments"] = data.get("comments_count", 0)
+    else:
+        # Instagram Feed Posts - use summary edges
+        resp = httpx.get(
+            f"https://graph.facebook.com/{settings.meta_graph_version}/{external_post_id}",
+            params={"fields": "likes.summary(true),comments.summary(true),shares", "access_token": token},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        result["likes"] = data.get("likes", {}).get("summary", {}).get("total_count", 0)
+        result["comments"] = data.get("comments", {}).get("summary", {}).get("total_count", 0)
+        result["shares"] = data.get("shares", {}).get("count", 0)
+
+    # Step 2: Fetch Instagram Insights (requires instagram_manage_insights permission)
+    try:
+        # Build metric list based on media type
+        if media_type == "video":
+            # Reels metrics
+            metrics = "reach,saved,shares,profile_visits,views,ig_reels_avg_watch_time,ig_reels_video_view_total_time,reposts"
+        else:
+            # Feed post metrics
+            metrics = "reach,saved,shares,profile_visits,reposts"
+
+        insights_resp = httpx.get(
+            f"https://graph.facebook.com/{settings.meta_graph_version}/{external_post_id}/insights",
+            params={"metric": metrics, "access_token": token},
+            timeout=30,
+        )
+
+        if insights_resp.status_code == 200:
+            insights_data = insights_resp.json().get("data", [])
+            for insight in insights_data:
+                metric_name = insight.get("name")
+                values = insight.get("values", [])
+                if values and len(values) > 0:
+                    value = values[0].get("value", 0)
+                    if metric_name == "reach":
+                        result["reach"] = value
+                    elif metric_name == "saved":
+                        result["saves"] = value
+                    elif metric_name == "shares":
+                        result["shares"] = value  # Override if insights provides more accurate count
+                    elif metric_name == "profile_visits":
+                        result["profile_visits"] = value
+                    elif metric_name == "views":
+                        result["views"] = value
+                    elif metric_name == "reposts":
+                        result["reposts"] = value
+                    elif metric_name == "ig_reels_avg_watch_time":
+                        result["avg_watch_time_seconds"] = float(value)
+                    elif metric_name == "ig_reels_video_view_total_time":
+                        result["total_watch_time_seconds"] = value
+    except Exception:  # noqa: BLE001
+        # Insights API might fail if permission not granted - continue with basic metrics
+        logger.warning("Instagram Insights API failed for media %s, using basic metrics only", external_post_id)
+
+    return result
+
+
+def _fetch_tiktok_metrics(
+    account: dict[str, Any], external_post_id: str, zeros: dict[str, int | float]
+) -> dict[str, int | float]:
+    """Fetch TikTok video metrics using Display API (if available).
+
+    Note: TikTok Content Posting API doesn't expose insights. This attempts to use
+    Display API (video.list scope) to fetch basic metrics including likes, comments,
+    shares, views, and favorites (saved videos). If Display API is not available,
+    returns zeros.
+    """
+    result = zeros.copy()
+
+    try:
+        # Refresh token if needed
+        access_token = crypto.decrypt(account["access_token_encrypted"])
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+
+        # Try to query the specific video by ID using Display API
+        # Note: This requires video.list scope which may not be granted yet
+        resp = httpx.post(
+            "https://open.tiktokapis.com/v2/video/query/",
+            headers=headers,
+            json={"filters": {"video_ids": [external_post_id]}},
+            timeout=30,
+        )
+
+        if resp.status_code == 200:
+            data = resp.json()
+            videos = data.get("data", {}).get("videos", [])
+            if videos and len(videos) > 0:
+                video = videos[0]
+                result["likes"] = video.get("like_count", 0)
+                result["comments"] = video.get("comment_count", 0)
+                result["shares"] = video.get("share_count", 0)
+                result["views"] = video.get("view_count", 0)
+                result["saves"] = video.get("favorites_count", 0)  # TikTok calls it "favorites"
+                # TikTok Display API doesn't provide watch time
+        else:
+            # Display API not available (permission not granted or video not found)
+            logger.info("TikTok Display API returned %s for video %s - no metrics available", resp.status_code, external_post_id)
+    except Exception:  # noqa: BLE001
+        # TikTok Display API failed - this is expected if video.list scope isn't granted
+        logger.debug("TikTok metrics unavailable for video %s (Display API not configured)", external_post_id)
+
+    return result
+
+
 def fetch_metrics(
     client: Client, *, user_id: str, platform: str, external_post_id: str, media_type: str = "image"
-) -> dict[str, int] | None:
+) -> dict[str, int | float] | None:
     """Fetches analytics for a posted item. Returns zeros only for the genuine "no
     data available" case (account not connected, or a platform — TikTok — that
     doesn't expose post insights at all). Returns None if the call itself failed
@@ -324,66 +507,40 @@ def fetch_metrics(
     field (likes)") and needs the flat `like_count`/`comments_count` fields instead.
     Getting this wrong doesn't surface as a visible error anywhere — it's a 400 that
     this function's own `except` swallows into a skipped snapshot, so a report that
-    silently never accumulates data is the only symptom."""
-    zeros = {"likes": 0, "comments": 0, "shares": 0, "views": 0}
+    silently never accumulates data is the only symptom.
+
+    Enhanced to fetch extended metrics:
+    - Basic: likes, comments, shares, views
+    - Extended: reach, saves, profile_visits, reposts
+    - Video: avg_watch_time_seconds, total_watch_time_seconds
+    - Facebook: post_clicks, impressions (via Insights API)
+    """
+    zeros = {
+        "likes": 0,
+        "comments": 0,
+        "shares": 0,
+        "views": 0,
+        "reach": 0,
+        "saves": 0,
+        "profile_visits": 0,
+        "reposts": 0,
+        "post_clicks": 0,
+        "impressions": 0,
+        "avg_watch_time_seconds": 0.0,
+        "total_watch_time_seconds": 0,
+    }
     account = _get_account(client, user_id=user_id, platform=platform)
     if account is None:
         return zeros
 
     try:
         if platform == "facebook":
-            token = crypto.decrypt(account["access_token_encrypted"])
-            settings = get_settings()
-            fields = (
-                "likes.summary(true),comments.summary(true),views"
-                if media_type == "video"
-                else "likes.summary(true),comments.summary(true),shares"
-            )
-            resp = httpx.get(
-                f"https://graph.facebook.com/{settings.meta_graph_version}/{external_post_id}",
-                params={"fields": fields, "access_token": token},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return {
-                "likes": data.get("likes", {}).get("summary", {}).get("total_count", 0),
-                "comments": data.get("comments", {}).get("summary", {}).get("total_count", 0),
-                "shares": data.get("shares", {}).get("count", 0),  # not requested/available for video — stays 0
-                "views": data.get("views", 0),  # not requested/available for photos — stays 0
-            }
+            return _fetch_facebook_metrics(account, external_post_id, media_type, zeros)
         if platform == "instagram":
-            token = crypto.decrypt(account["access_token_encrypted"])
-            settings = get_settings()
-            if media_type == "video":
-                resp = httpx.get(
-                    f"https://graph.facebook.com/{settings.meta_graph_version}/{external_post_id}",
-                    params={"fields": "like_count,comments_count", "access_token": token},
-                    timeout=30,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return {
-                    "likes": data.get("like_count", 0),
-                    "comments": data.get("comments_count", 0),
-                    "shares": 0,  # not exposed on Reels media via this field set
-                    "views": 0,
-                }
-            resp = httpx.get(
-                f"https://graph.facebook.com/{settings.meta_graph_version}/{external_post_id}",
-                params={"fields": "likes.summary(true),comments.summary(true),shares", "access_token": token},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return {
-                "likes": data.get("likes", {}).get("summary", {}).get("total_count", 0),
-                "comments": data.get("comments", {}).get("summary", {}).get("total_count", 0),
-                "shares": data.get("shares", {}).get("count", 0),
-                "views": 0,
-            }
-        # TikTok's Content Posting API doesn't expose public post insights at all —
-        # this is a genuine "no data available", not a failed call, so zeros is correct.
+            return _fetch_instagram_metrics(account, external_post_id, media_type, zeros)
+        if platform == "tiktok":
+            return _fetch_tiktok_metrics(account, external_post_id, zeros)
+        # Unknown platform
         return zeros
     except Exception:  # noqa: BLE001
         logger.exception("fetch_metrics failed for %s post %s", platform, external_post_id)

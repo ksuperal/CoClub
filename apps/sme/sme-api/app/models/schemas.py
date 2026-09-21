@@ -76,6 +76,7 @@ class CampaignCreate(BaseModel):
     product_id: str | None = Field(default=None, description="Optional — ties this campaign to a specific product")
     campaign_type: CampaignType
     brief: str
+    product_url: str | None = Field(default=None, description="Optional product/landing page URL to include in captions with UTM tracking")
     # No variant_count/media_type/audio toggles here anymore — the campaign-scoping
     # conversation (POST /campaigns/{id}/scope/messages, right after creation) decides
     # those, letting the user describe size in their own words ("IG 9 posts, TikTok 2
@@ -88,6 +89,7 @@ class CampaignOut(BaseModel):
     product_id: str | None
     campaign_type: str
     brief: str
+    product_url: str | None = None
     variant_count: int  # legacy fallback default — see step2_variants._expand_content_plan
     media_type: str = "image"  # legacy fallback default — content_plan is authoritative once scoping finishes
     include_voiceover: bool = False
