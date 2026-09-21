@@ -92,9 +92,19 @@ function IntakePageInner() {
 
   // Campaign section
   const [campaignType, setCampaignType] = useState("product_launch");
-  const [brief, setBrief] = useState("");
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Structured brief fields
+  const [objective, setObjective] = useState("");
+  const [targetAudience, setTargetAudience] = useState("");
+  const [singleMindedMessage, setSingleMindedMessage] = useState("");
+  const [usp, setUsp] = useState("");
+  const [reasonToBelieve, setReasonToBelieve] = useState("");
+  const [cta, setCta] = useState("");
+  const [mandatoryInformation, setMandatoryInformation] = useState("");
+  const [reference, setReference] = useState("");
+  const [format, setFormat] = useState("");
 
   // Brand name validation
   const [nameValidation, setNameValidation] = useState<{
@@ -244,13 +254,23 @@ function IntakePageInner() {
         }
       }
 
-      // Create campaign
+      // Create campaign with structured brief
       setStep("Creating campaign…");
       const campaign = await api.createCampaign({
         brand_id: brandId,
         product_id: productId,
         campaign_type: campaignType,
-        brief,
+        structured_brief: {
+          objective: objective || undefined,
+          target_audience: targetAudience || undefined,
+          single_minded_message: singleMindedMessage || undefined,
+          usp: usp || undefined,
+          reason_to_believe: reasonToBelieve || undefined,
+          cta: cta || undefined,
+          mandatory_information: mandatoryInformation || undefined,
+          reference: reference || undefined,
+          format: format || undefined,
+        },
       });
 
       router.push(`/campaign/${campaign.id}/scope`);
@@ -510,14 +530,132 @@ function IntakePageInner() {
               </option>
             ))}
           </select>
-          <textarea
-            placeholder="What do you want to promote? (product, event, offer…)"
-            required
-            rows={3}
-            value={brief}
-            onChange={(e) => setBrief(e.target.value)}
-            className="border rounded px-3 py-2"
-          />
+
+          {/* Structured Brief Fields */}
+          <div className="border rounded-lg p-4 bg-neutral-50 flex flex-col gap-3">
+            <h3 className="font-medium text-sm text-neutral-700">Campaign Brief</h3>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
+                Objective <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="What should this content achieve? (e.g., Drive awareness, Increase sales)"
+                required
+                value={objective}
+                onChange={(e) => setObjective(e.target.value)}
+                className="border rounded px-3 py-2 w-full bg-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
+                Target Audience <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="Who do you want to attract? (e.g., Young professionals 25-35)"
+                required
+                value={targetAudience}
+                onChange={(e) => setTargetAudience(e.target.value)}
+                className="border rounded px-3 py-2 w-full bg-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
+                Single-minded Message <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="The one key message you want audience to remember"
+                required
+                value={singleMindedMessage}
+                onChange={(e) => setSingleMindedMessage(e.target.value)}
+                className="border rounded px-3 py-2 w-full bg-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
+                USP (Unique Selling Proposition)
+              </label>
+              <input
+                type="text"
+                placeholder="Key selling point and reason (e.g., 100% organic, clinically proven)"
+                value={usp}
+                onChange={(e) => setUsp(e.target.value)}
+                className="border rounded px-3 py-2 w-full bg-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
+                Reason to Believe
+              </label>
+              <input
+                type="text"
+                placeholder="Evidence or proof (e.g., FDA certified, 50,000+ customers)"
+                value={reasonToBelieve}
+                onChange={(e) => setReasonToBelieve(e.target.value)}
+                className="border rounded px-3 py-2 w-full bg-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
+                Call-to-Action (CTA)
+              </label>
+              <input
+                type="text"
+                placeholder="What should audience do? (e.g., Shop now, Download app)"
+                value={cta}
+                onChange={(e) => setCta(e.target.value)}
+                className="border rounded px-3 py-2 w-full bg-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
+                Mandatory Information
+              </label>
+              <input
+                type="text"
+                placeholder="Required elements (e.g., Price: ฿999, Promo until Dec 31, Logo)"
+                value={mandatoryInformation}
+                onChange={(e) => setMandatoryInformation(e.target.value)}
+                className="border rounded px-3 py-2 w-full bg-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
+                Reference (Mood & Tone)
+              </label>
+              <input
+                type="text"
+                placeholder="Examples or style reference (e.g., Clean, minimalist, warm earth tones)"
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                className="border rounded px-3 py-2 w-full bg-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
+                Format
+              </label>
+              <input
+                type="text"
+                placeholder="Content format (e.g., 1:1, 4:5, 9:16)"
+                value={format}
+                onChange={(e) => setFormat(e.target.value)}
+                className="border rounded px-3 py-2 w-full bg-white"
+              />
+            </div>
+          </div>
+
           <p className="text-xs text-neutral-400">
             Next step asks how big a campaign you want — how many posts, which platforms,
             image or video — in your own words, before anything is written or generated.
