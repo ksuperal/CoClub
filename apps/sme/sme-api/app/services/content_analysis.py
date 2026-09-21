@@ -180,9 +180,9 @@ USER'S AVERAGE PERFORMANCE ON {platform.upper()}:
 - Avg Engagement: {user_average.get('avg_engagement_score', 0)}
 
 COMPARISON:
-- Likes vs Average: {((metrics.get('likes', 0) / user_average.get('avg_likes', 1)) - 1) * 100:+.1f}%
-- Comments vs Average: {((metrics.get('comments', 0) / user_average.get('avg_comments', 1)) - 1) * 100:+.1f}%
-- Shares vs Average: {((metrics.get('shares', 0) / user_average.get('avg_shares', 1)) - 1) * 100:+.1f}%
+- Likes vs Average: {((metrics.get('likes', 0) / max(user_average.get('avg_likes', 0), 1)) - 1) * 100:+.1f}%
+- Comments vs Average: {((metrics.get('comments', 0) / max(user_average.get('avg_comments', 0), 1)) - 1) * 100:+.1f}%
+- Shares vs Average: {((metrics.get('shares', 0) / max(user_average.get('avg_shares', 0), 1)) - 1) * 100:+.1f}%
 
 POST DETAILS:
 - Caption Length: {post_data.get('caption_length', 0)} characters

@@ -34,9 +34,8 @@ def test_content_performance_analysis():
 
     # Step 2: Find posts with metrics
     print("\n[STEP 2] Finding posts with metrics to analyze...")
-    posts_with_metrics = client.rpc("get_posts_with_metrics_for_analysis").execute()
 
-    # Alternative: Query posts that have metrics
+    # Query posts that have metrics
     posts = client.table("posts").select("id, platform, status, posted_at").eq("status", "posted").limit(10).execute().data
 
     if not posts:
