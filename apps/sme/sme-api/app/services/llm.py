@@ -377,9 +377,17 @@ def ideate_message_angles(
         "You are a marketing strategist. Given a brand profile and campaign brief, propose "
         f"exactly {n} genuinely distinct message angles (not just reworded restatements of "
         "each other) appropriate for a "
-        f"'{campaign_type}' campaign. Stay consistent with the brand's guideline, mascot, and style. "
-        "If a structured brief is provided, ensure your message angles align with the campaign objective, "
-        "target audience, and key message while exploring different creative approaches."
+        f"'{campaign_type}' campaign. Stay consistent with the brand's guideline, mascot, and style.\n\n"
+        "CRITICAL REQUIREMENT FOR DIVERSITY:\n"
+        "Each message angle MUST be fundamentally different from the others. They should:\n"
+        "- Explore different emotional hooks (e.g., one focuses on happiness, another on convenience, another on quality)\n"
+        "- Highlight different product benefits or use cases\n"
+        "- Appeal to different aspects of the target audience's needs\n"
+        "- Use different storytelling approaches (e.g., aspirational, relatable, educational, humorous)\n"
+        "- Create visually distinct concepts (different scenarios, settings, moods)\n\n"
+        "If a structured brief is provided, use it as strategic guidance (objective, target audience, USP) "
+        "but DO NOT make all angles say the same thing. The 'single-minded message' is the overarching theme, "
+        "but each angle should explore it from a completely different creative direction."
     )
     user_text = f"Brand profile: {brand_profile}\n\n"
     if product_profile:
@@ -453,9 +461,11 @@ def continue_campaign_scoping(
             "properties": {
                 "items": {
                     "type": "array",
-                    "description": "One entry per distinct group of pieces (e.g. one entry for '9 "
-                    "Instagram image posts', another for '2 TikTok videos') — not one entry per "
-                    "individual piece.",
+                    "description": "Campaign content plan. Group pieces by media type and platform, but "
+                    "IMPORTANT: When count > 1, each individual piece should explore a DIFFERENT creative "
+                    "concept - never create multiple pieces with the same concept. The 'concept' field "
+                    "should describe the variety, e.g., '9 posts exploring different angles: product reveal, "
+                    "lifestyle usage, ingredient focus, etc.' NOT '9 posts of the same product shot'.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -657,9 +667,37 @@ def write_image_prompt(
     reference_instruction = _describe_references(reference_kinds, has_product_profile=bool(product_profile))
 
     system = (
-        "You write image-generation prompts for social ad creative. The prompt must faithfully render "
-        "the brand's color palette, mascot (if any), and visual style, and fit a "
+        "You write image-generation prompts for social ad creative. The prompt must use the brand's "
+        "color palette, mascot (if any), and visual style, and fit a "
         f"'{campaign_type}' campaign.\n\n"
+        "CRITICAL: VISUAL VARIETY ACROSS VARIANTS\n"
+        "This message angle is ONE of several variants. DO NOT make all variants look the same! "
+        "Each variant MUST have distinctly different visual execution while staying on-brand.\n\n"
+        "REQUIRED VARIATIONS (pick different ones for each variant):\n"
+        "1. COMPOSITION STYLE:\n"
+        "   - Vary: centered hero shot vs lifestyle scene vs flat lay vs in-hand vs action shot\n"
+        "   - Vary camera angles: top-down, eye-level, 45-degree, close-up macro, wide scene\n"
+        "   - Don't use the same composition repeatedly\n\n"
+        "2. COLOR TREATMENT (within brand palette):\n"
+        "   - If brand has multiple colors (e.g., pink, cream, maroon, green), explore DIFFERENT combinations\n"
+        "   - Vary which color dominates: one variant mostly pink, another mostly cream, another colorful mix\n"
+        "   - Vary color saturation: soft pastels vs vibrant brights vs deep rich tones\n"
+        "   - DON'T use identical hex codes or color descriptions for every variant\n\n"
+        "3. MOOD & ATMOSPHERE:\n"
+        "   - Vary: playful & energetic vs calm & elegant vs cozy & warm vs bold & modern\n"
+        "   - Vary: busy decorative vs clean minimal vs somewhere in between\n"
+        "   - Vary lighting: bright & airy vs soft & warm vs dramatic shadows\n\n"
+        "4. BACKGROUND & SETTING:\n"
+        "   - Vary: solid color vs patterned vs illustrated vs real environment\n"
+        "   - Vary decorative elements: different props, patterns, or graphic elements\n"
+        "   - One variant can be product-focused, another lifestyle-focused, another graphic/illustrative\n\n"
+        "5. MASCOT VARIETY (if applicable):\n"
+        "   - Different poses: standing, flying, dancing, giving thumbs up, relaxing\n"
+        "   - Different positions: center stage, peeking from corner, background element, holding product\n"
+        "   - Different expressions and activities\n\n"
+        "IMPORTANT: If the brand profile gives you specific hex codes or style details, use them as a "
+        "TOOLKIT to mix and match, NOT as a rigid template to copy-paste into every prompt. "
+        "Create variety WITHIN the brand guidelines.\n\n"
         "REFERENCE COMPOSITION: If the message angle includes 'shot composition (from reference):', that "
         "composition description is MANDATORY and defines the ENTIRE shot structure — camera angle, subject "
         "position/pose, framing, depth of field, and visual style. Your prompt must replicate that exact "

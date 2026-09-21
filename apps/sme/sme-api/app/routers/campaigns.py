@@ -304,13 +304,22 @@ def generate_copy(campaign_id: str, user_id: str = Depends(get_current_user_id))
 
     # Idempotency guard: a second call for the same campaign (e.g. React StrictMode's
     # double-invoked effects in dev, a retried request) must not generate a second set
-    # of captions — that would silently double-post everything in Step 4. If captions
-    # already exist for any variant here, return those instead of generating more.
-    variant_ids = [v["id"] for v in client.table("variants").select("id").eq("campaign_id", campaign_id).execute().data]
-    if variant_ids:
+    # of captions — that would silently double-post everything in Step 4. If ALL expected
+    # captions already exist, return those instead of generating more.
+    PLATFORMS = ["instagram", "tiktok", "facebook"]
+    variants = client.table("variants").select("id, target_platforms").eq("campaign_id", campaign_id).execute().data
+    if variants:
+        # Calculate expected caption count based on each variant's target_platforms
+        expected_count = sum(len(v.get("target_platforms") or PLATFORMS) for v in variants)
+        variant_ids = [v["id"] for v in variants]
         existing = client.table("captions").select("*").in_("variant_id", variant_ids).execute().data
-        if existing:
+
+        # Only return existing captions if we have the COMPLETE set
+        if len(existing) == expected_count:
             return existing
+        # If partial captions exist, delete them and regenerate from scratch to ensure consistency
+        if existing:
+            client.table("captions").delete().in_("variant_id", variant_ids).execute()
 
     return run_copywriting(client, user_id=user_id, campaign=campaign)
 

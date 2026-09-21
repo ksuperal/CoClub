@@ -149,13 +149,20 @@ export default function VariantsPage() {
         );
 
         let c = await api.listCaptions(id);
-        if (c.length === 0) {
+        // Only auto-generate captions if campaign is ready (awaiting_approval status)
+        // This prevents 409 errors when user navigates here while media is still generating
+        if (c.length === 0 && campaign.status === "awaiting_approval") {
           setStep("Writing captions & hashtags…");
           await api.generateCopy(id);
           c = await api.listCaptions(id);
+        } else if (c.length === 0 && campaign.status !== "awaiting_approval") {
+          // Campaign not ready yet - show helpful message
+          setStep(`Media generation in progress… (status: ${campaign.status})`);
         }
         setCaptions(c);
-        setStep(null);
+        if (c.length > 0) {
+          setStep(null);
+        }
 
         // Best-posting-time: only ever shown if there's real signal — the endpoint
         // itself is gated (services/posting_time.py) behind 10+ real posts on a
@@ -190,7 +197,8 @@ export default function VariantsPage() {
   // nothing is still generating.
   useEffect(() => {
     const stillGenerating = variants.some((v) => v.generation_status === "generating");
-    if (!stillGenerating || campaignError) return;
+    const needsCaptions = captions.length === 0 && !step?.includes("Writing captions");
+    if ((!stillGenerating && !needsCaptions) || campaignError) return;
 
     const timer = setTimeout(async () => {
       try {
@@ -199,13 +207,23 @@ export default function VariantsPage() {
         if (campaign.status === "failed") {
           setCampaignError(campaign.error_message ?? "Media generation failed.");
         }
+
+        // If media just finished generating and we need captions, auto-generate them
+        if (campaign.status === "awaiting_approval" && captions.length === 0) {
+          setStep("Writing captions & hashtags…");
+          const c = await api.generateCopy(id);
+          setCaptions(c);
+          setStep(null);
+        } else if (campaign.status !== "awaiting_approval" && captions.length === 0) {
+          setStep(`Media generation in progress… (status: ${campaign.status})`);
+        }
       } catch {
         // Transient poll failure — next tick retries as long as something's still generating.
       }
     }, 4000);
 
     return () => clearTimeout(timer);
-  }, [id, variants, campaignError]);
+  }, [id, variants, campaignError, captions.length, step]);
 
   function toggle(variantId: string) {
     setSelected((prev) => {

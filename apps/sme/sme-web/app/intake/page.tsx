@@ -95,6 +95,12 @@ function IntakePageInner() {
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Brief mode: structured (detailed) or simple (surprise me)
+  const [briefMode, setBriefMode] = useState<"structured" | "simple">("structured");
+
+  // Simple brief field
+  const [simpleBrief, setSimpleBrief] = useState("");
+
   // Structured brief fields
   const [objective, setObjective] = useState("");
   const [targetAudience, setTargetAudience] = useState("");
@@ -254,23 +260,27 @@ function IntakePageInner() {
         }
       }
 
-      // Create campaign with structured brief
+      // Create campaign with brief (structured or simple)
       setStep("Creating campaign…");
       const campaign = await api.createCampaign({
         brand_id: brandId,
         product_id: productId,
         campaign_type: campaignType,
-        structured_brief: {
-          objective: objective || undefined,
-          target_audience: targetAudience || undefined,
-          single_minded_message: singleMindedMessage || undefined,
-          usp: usp || undefined,
-          reason_to_believe: reasonToBelieve || undefined,
-          cta: cta || undefined,
-          mandatory_information: mandatoryInformation || undefined,
-          reference: reference || undefined,
-          format: format || undefined,
-        },
+        ...(briefMode === "simple"
+          ? { brief: simpleBrief }
+          : {
+              structured_brief: {
+                objective: objective || undefined,
+                target_audience: targetAudience || undefined,
+                single_minded_message: singleMindedMessage || undefined,
+                usp: usp || undefined,
+                reason_to_believe: reasonToBelieve || undefined,
+                cta: cta || undefined,
+                mandatory_information: mandatoryInformation || undefined,
+                reference: reference || undefined,
+                format: format || undefined,
+              },
+            }),
       });
 
       router.push(`/campaign/${campaign.id}/scope`);
@@ -531,9 +541,53 @@ function IntakePageInner() {
             ))}
           </select>
 
-          {/* Structured Brief Fields */}
-          <div className="border rounded-lg p-4 bg-neutral-50 flex flex-col gap-3">
-            <h3 className="font-medium text-sm text-neutral-700">Campaign Brief</h3>
+          {/* Brief Mode Toggle */}
+          <div className="inline-flex rounded-md border border-neutral-300 mb-2 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setBriefMode("structured")}
+              className={`px-4 py-2 text-sm transition-colors ${
+                briefMode === "structured"
+                  ? "bg-black text-white"
+                  : "bg-white text-neutral-700 hover:bg-neutral-50"
+              }`}
+            >
+              Detailed Brief
+            </button>
+            <button
+              type="button"
+              onClick={() => setBriefMode("simple")}
+              className={`px-4 py-2 text-sm border-l border-neutral-300 transition-colors ${
+                briefMode === "simple"
+                  ? "bg-black text-white"
+                  : "bg-white text-neutral-700 hover:bg-neutral-50"
+              }`}
+            >
+              Surprise Me
+            </button>
+          </div>
+
+          {/* Simple Brief Mode */}
+          {briefMode === "simple" && (
+            <div className="flex flex-col gap-2">
+              <textarea
+                placeholder="What do you want to promote? (product, event, offer…)"
+                required={briefMode === "simple"}
+                rows={3}
+                value={simpleBrief}
+                onChange={(e) => setSimpleBrief(e.target.value)}
+                className="border rounded px-3 py-2"
+              />
+              <p className="text-xs text-neutral-400">
+                Quick mode - Claude will surprise you with creative variants based on your brief
+              </p>
+            </div>
+          )}
+
+          {/* Structured Brief Mode */}
+          {briefMode === "structured" && (
+            <div className="border rounded-lg p-4 bg-neutral-50 flex flex-col gap-3">
+              <h3 className="font-medium text-sm text-neutral-700">Campaign Brief</h3>
 
             <div>
               <label className="block text-sm font-medium text-neutral-700 mb-1">
@@ -542,7 +596,7 @@ function IntakePageInner() {
               <input
                 type="text"
                 placeholder="What should this content achieve? (e.g., Drive awareness, Increase sales)"
-                required
+                required={briefMode === "structured"}
                 value={objective}
                 onChange={(e) => setObjective(e.target.value)}
                 className="border rounded px-3 py-2 w-full bg-white"
@@ -556,7 +610,7 @@ function IntakePageInner() {
               <input
                 type="text"
                 placeholder="Who do you want to attract? (e.g., Young professionals 25-35)"
-                required
+                required={briefMode === "structured"}
                 value={targetAudience}
                 onChange={(e) => setTargetAudience(e.target.value)}
                 className="border rounded px-3 py-2 w-full bg-white"
@@ -570,7 +624,7 @@ function IntakePageInner() {
               <input
                 type="text"
                 placeholder="The one key message you want audience to remember"
-                required
+                required={briefMode === "structured"}
                 value={singleMindedMessage}
                 onChange={(e) => setSingleMindedMessage(e.target.value)}
                 className="border rounded px-3 py-2 w-full bg-white"
@@ -655,6 +709,7 @@ function IntakePageInner() {
               />
             </div>
           </div>
+          )}
 
           <p className="text-xs text-neutral-400">
             Next step asks how big a campaign you want — how many posts, which platforms,
