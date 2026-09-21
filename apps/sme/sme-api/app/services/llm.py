@@ -356,6 +356,7 @@ def ideate_message_angles(
     campaign_type: str,
     brief: str,
     n: int,
+    structured_brief: dict[str, Any] | None = None,
 ) -> tuple[list[str], int]:
     tool = {
         "name": "record_angles",
@@ -376,12 +377,28 @@ def ideate_message_angles(
         "You are a marketing strategist. Given a brand profile and campaign brief, propose "
         f"exactly {n} genuinely distinct message angles (not just reworded restatements of "
         "each other) appropriate for a "
-        f"'{campaign_type}' campaign. Stay consistent with the brand's guideline, mascot, and style."
+        f"'{campaign_type}' campaign. Stay consistent with the brand's guideline, mascot, and style. "
+        "If a structured brief is provided, ensure your message angles align with the campaign objective, "
+        "target audience, and key message while exploring different creative approaches."
     )
     user_text = f"Brand profile: {brand_profile}\n\n"
     if product_profile:
         user_text += f"Product profile: {product_profile}\n\n"
-    user_text += f"Campaign brief: {brief}\n\nPropose {n} distinct message angles."
+
+    # Add structured brief context for better angle generation
+    if structured_brief:
+        user_text += "CAMPAIGN BRIEF:\n"
+        if structured_brief.get("objective"):
+            user_text += f"- Objective: {structured_brief['objective']}\n"
+        if structured_brief.get("target_audience"):
+            user_text += f"- Target Audience: {structured_brief['target_audience']}\n"
+        if structured_brief.get("single_minded_message"):
+            user_text += f"- Key Message to Communicate: {structured_brief['single_minded_message']}\n"
+        if structured_brief.get("usp"):
+            user_text += f"- USP: {structured_brief['usp']}\n"
+        user_text += "\n"
+
+    user_text += f"Campaign brief: {brief}\n\nPropose {n} distinct message angles that align with the campaign objectives."
     messages = [{"role": "user", "content": user_text}]
     result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool)
     return result["angles"][:n], tokens
@@ -918,6 +935,7 @@ def write_captions(
     product_url: str | None = None,
     campaign_id: str | None = None,
     variant_id: str | None = None,
+    structured_brief: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     tool = {
         "name": "record_captions",
@@ -1041,6 +1059,28 @@ def write_captions(
     user_text = f"Brand profile: {brand_profile}\n\n"
     if product_profile:
         user_text += f"Product profile: {product_profile}\n\n"
+
+    # Add structured brief information for more context
+    if structured_brief:
+        user_text += "CAMPAIGN BRIEF:\n"
+        if structured_brief.get("objective"):
+            user_text += f"- Objective: {structured_brief['objective']}\n"
+        if structured_brief.get("target_audience"):
+            user_text += f"- Target Audience: {structured_brief['target_audience']}\n"
+        if structured_brief.get("single_minded_message"):
+            user_text += f"- Key Message: {structured_brief['single_minded_message']}\n"
+        if structured_brief.get("usp"):
+            user_text += f"- USP: {structured_brief['usp']}\n"
+        if structured_brief.get("reason_to_believe"):
+            user_text += f"- Reason to Believe: {structured_brief['reason_to_believe']}\n"
+        if structured_brief.get("cta"):
+            user_text += f"- Desired CTA: {structured_brief['cta']}\n"
+        if structured_brief.get("mandatory_information"):
+            user_text += f"- Must Include: {structured_brief['mandatory_information']}\n"
+        if structured_brief.get("reference"):
+            user_text += f"- Mood & Tone Reference: {structured_brief['reference']}\n"
+        user_text += "\n"
+
     user_text += f"Message angle: {message_angle}\n\nPlatforms: {', '.join(platforms)}"
     messages = [{"role": "user", "content": user_text}]
     result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=2500)

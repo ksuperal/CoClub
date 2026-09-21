@@ -71,11 +71,25 @@ class ProductOut(BaseModel):
 # ---------------------------------------------------------------------------
 # Campaigns
 # ---------------------------------------------------------------------------
+class StructuredBrief(BaseModel):
+    """Structured campaign brief for better AI-generated content"""
+    objective: str | None = Field(default=None, description="What the content should achieve")
+    target_audience: str | None = Field(default=None, description="Who we want to attract/reach")
+    single_minded_message: str | None = Field(default=None, description="The one key message for audience to remember")
+    usp: str | None = Field(default=None, description="Unique Selling Proposition - key selling point and reason")
+    reason_to_believe: str | None = Field(default=None, description="Evidence or proof that builds credibility")
+    cta: str | None = Field(default=None, description="Call to action - what we want audience to do")
+    mandatory_information: str | None = Field(default=None, description="Required elements (price, dates, logo, etc.)")
+    reference: str | None = Field(default=None, description="Mood & Tone reference/examples")
+    format: str | None = Field(default=None, description="Content format preference (1:1, 4:5, 9:16, etc.)")
+
+
 class CampaignCreate(BaseModel):
     brand_id: str
     product_id: str | None = Field(default=None, description="Optional — ties this campaign to a specific product")
     campaign_type: CampaignType
-    brief: str
+    brief: str | None = Field(default=None, description="Simple brief text (for backwards compatibility)")
+    structured_brief: StructuredBrief | None = Field(default=None, description="Structured campaign brief (recommended)")
     product_url: str | None = Field(default=None, description="Optional product/landing page URL to include in captions with UTM tracking")
     # No variant_count/media_type/audio toggles here anymore — the campaign-scoping
     # conversation (POST /campaigns/{id}/scope/messages, right after creation) decides

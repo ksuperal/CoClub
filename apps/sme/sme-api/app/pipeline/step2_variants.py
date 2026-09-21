@@ -511,6 +511,7 @@ def ideate_variants(
             campaign_type=campaign["campaign_type"],
             brief=campaign["brief"],
             n=len(specs),
+            structured_brief=campaign.get("structured_brief"),
         )
         usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=ideation_tokens)
 

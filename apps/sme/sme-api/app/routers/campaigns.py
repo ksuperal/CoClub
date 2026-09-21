@@ -55,6 +55,24 @@ def create_campaign(body: CampaignCreate, user_id: str = Depends(get_current_use
         if not product:
             raise HTTPException(status_code=404, detail="Product not found for this brand")
 
+    # Handle both simple brief and structured brief
+    brief_text = body.brief or ""
+    structured_brief_data = {}
+
+    if body.structured_brief:
+        # Store structured brief as JSONB
+        structured_brief_data = body.structured_brief.model_dump(exclude_none=True)
+        # If no simple brief was provided, generate one from structured brief
+        if not brief_text and structured_brief_data:
+            parts = []
+            if structured_brief_data.get("objective"):
+                parts.append(f"Objective: {structured_brief_data['objective']}")
+            if structured_brief_data.get("target_audience"):
+                parts.append(f"Target Audience: {structured_brief_data['target_audience']}")
+            if structured_brief_data.get("single_minded_message"):
+                parts.append(f"Message: {structured_brief_data['single_minded_message']}")
+            brief_text = "\n".join(parts) if parts else "See structured brief for details"
+
     row = (
         client.table("campaigns")
         .insert(
@@ -63,7 +81,9 @@ def create_campaign(body: CampaignCreate, user_id: str = Depends(get_current_use
                 "product_id": body.product_id,
                 "user_id": user_id,
                 "campaign_type": body.campaign_type,
-                "brief": body.brief,
+                "brief": brief_text,
+                "structured_brief": structured_brief_data,
+                "product_url": body.product_url,
                 # variant_count/media_type/audio toggles are left at their DB
                 # defaults — the scoping conversation (POST .../scope/messages,
                 # right after this) decides the real content_plan instead.

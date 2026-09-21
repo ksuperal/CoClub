@@ -39,6 +39,7 @@ def run_copywriting(client: Client, *, user_id: str, campaign: dict[str, Any]) -
             product_url=campaign.get("product_url"),
             campaign_id=campaign_id,
             variant_id=variant["id"],
+            structured_brief=campaign.get("structured_brief"),
         )
         usage.log_usage(client, user_id=user_id, campaign_id=campaign_id, kind="llm_call", units=tokens)
 
