@@ -73,6 +73,23 @@ def create_campaign(body: CampaignCreate, user_id: str = Depends(get_current_use
                 parts.append(f"Message: {structured_brief_data['single_minded_message']}")
             brief_text = "\n".join(parts) if parts else "See structured brief for details"
 
+    # AI automatically detects campaign type and success metrics
+    brand = client.table("brands").select("extracted_profile").eq("id", body.brand_id).single().execute()
+    brand_profile = brand.data.get("extracted_profile") or {}
+
+    product_profile = None
+    if body.product_id:
+        product = client.table("products").select("extracted_profile").eq("id", body.product_id).single().execute()
+        product_profile = product.data.get("extracted_profile")
+
+    # AI analyzes brief and determines optimal metrics
+    metrics_config = llm.detect_campaign_type_and_metrics(
+        brief=brief_text,
+        structured_brief=structured_brief_data,
+        brand_profile=brand_profile,
+        product_profile=product_profile,
+    )
+
     row = (
         client.table("campaigns")
         .insert(
@@ -80,10 +97,15 @@ def create_campaign(body: CampaignCreate, user_id: str = Depends(get_current_use
                 "brand_id": body.brand_id,
                 "product_id": body.product_id,
                 "user_id": user_id,
-                "campaign_type": body.campaign_type,
+                "campaign_type": metrics_config["campaign_type"],  # AI-detected
+                "campaign_subtypes": metrics_config.get("campaign_subtypes", []),
                 "brief": brief_text,
                 "structured_brief": structured_brief_data,
                 "product_url": body.product_url,
+                "primary_metric": metrics_config["primary_metric"],  # AI-selected
+                "secondary_metric": metrics_config.get("secondary_metric"),
+                "metrics_reasoning": metrics_config.get("reasoning"),
+                "expected_thresholds": metrics_config.get("expected_thresholds"),
                 # variant_count/media_type/audio toggles are left at their DB
                 # defaults — the scoping conversation (POST .../scope/messages,
                 # right after this) decides the real content_plan instead.

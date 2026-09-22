@@ -1204,3 +1204,548 @@ def narrate_report(
     ]
     result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=1200)
     return result["summary_text"], tokens
+
+
+# ---------------------------------------------------------------------------
+# AI-Driven Campaign Metrics & Analysis
+# ---------------------------------------------------------------------------
+
+# Baseline campaign type knowledge (AI reference, not strict rules)
+CAMPAIGN_TYPE_GUIDELINES = {
+    "educational": {
+        "description": "How-to guides, tutorials, product selection guides, tips and tricks",
+        "primary_metric": "saves",
+        "secondary_metric": "shares",
+        "baseline_threshold": 300,
+        "reasoning": "Educational content gets saved for reference and shared as helpful resource"
+    },
+    "promotional": {
+        "description": "Sales, discounts, limited-time offers, flash sales, special deals",
+        "primary_metric": "link_clicks",
+        "secondary_metric": "conversion_count",
+        "baseline_threshold": 100,
+        "reasoning": "Promotional content aims to drive immediate action and purchases"
+    },
+    "brand_awareness": {
+        "description": "Brand story, values, mission, behind-the-scenes, brand personality",
+        "primary_metric": "reach",
+        "secondary_metric": "impressions",
+        "baseline_threshold": 10000,
+        "reasoning": "Awareness campaigns maximize visibility and exposure"
+    },
+    "product_launch": {
+        "description": "New product announcements, unveilings, teasers, coming soon",
+        "primary_metric": "reach",
+        "secondary_metric": "saves",
+        "baseline_threshold": 10000,
+        "reasoning": "Launches need maximum spread plus intent signals (saves)"
+    },
+    "community_building": {
+        "description": "Engagement posts, questions, polls, conversations, user-generated content",
+        "primary_metric": "comments",
+        "secondary_metric": "engagement_rate",
+        "baseline_threshold": 50,
+        "reasoning": "Community content drives conversation and relationship building"
+    },
+    "testimonial": {
+        "description": "Customer reviews, success stories, before/after, social proof",
+        "primary_metric": "engagement_rate",
+        "secondary_metric": "saves",
+        "baseline_threshold": 50,
+        "reasoning": "Testimonials build trust through engagement and get saved as references"
+    },
+}
+
+
+def _format_campaign_guidelines() -> str:
+    """Convert campaign type guidelines to natural language for AI prompt"""
+    lines = []
+    for type_name, config in CAMPAIGN_TYPE_GUIDELINES.items():
+        lines.append(f"""
+{type_name.upper()}:
+  Description: {config['description']}
+  Typically optimizes for: {config['primary_metric']} (primary), {config['secondary_metric']} (secondary)
+  Baseline threshold: {config['baseline_threshold']}+ {config['primary_metric']} = good performance
+  Why: {config['reasoning']}""")
+    return "\n".join(lines)
+
+
+def detect_campaign_type_and_metrics(
+    *,
+    brief: str,
+    structured_brief: dict[str, Any] | None,
+    brand_profile: dict[str, Any],
+    product_profile: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """AI analyzes campaign brief and automatically determines:
+    1. Campaign type (educational, promotional, etc.)
+    2. Primary and secondary success metrics
+    3. Expected performance thresholds
+
+    This runs when campaign is created, before any content is generated.
+    """
+
+    system = f"""You are an expert social media strategist analyzing campaign objectives.
+
+BASELINE CAMPAIGN TYPE KNOWLEDGE:
+{_format_campaign_guidelines()}
+
+IMPORTANT GUIDELINES:
+- These baselines are STARTING POINTS for typical campaigns
+- For small brands (< 1000 followers): REDUCE thresholds by 50-80%
+- For micro brands (< 500 followers): REDUCE thresholds by 80-90%
+- For unique multi-objective campaigns: MIX metrics as needed
+- Always explain your reasoning clearly
+- If campaign combines multiple types, choose the PRIMARY type and note subtypes
+
+Your task: Analyze the brief and determine the best success metrics for THIS specific campaign."""
+
+    # Build context from brief
+    brief_text = brief or ""
+    if structured_brief:
+        if structured_brief.get("objective"):
+            brief_text += f"\n\nObjective: {structured_brief['objective']}"
+        if structured_brief.get("target_audience"):
+            brief_text += f"\nTarget Audience: {structured_brief['target_audience']}"
+        if structured_brief.get("single_minded_message"):
+            brief_text += f"\nKey Message: {structured_brief['single_minded_message']}"
+        if structured_brief.get("cta"):
+            brief_text += f"\nCall to Action: {structured_brief['cta']}"
+
+    # Add brand context
+    brand_size = brand_profile.get("follower_count", "unknown")
+    industry = brand_profile.get("industry", "unknown")
+
+    user_prompt = f"""CAMPAIGN BRIEF:
+{brief_text}
+
+BRAND CONTEXT:
+- Follower count: {brand_size}
+- Industry: {industry}
+- Brand: {brand_profile.get('name', 'unknown')}
+
+PRODUCT CONTEXT:
+{json.dumps(product_profile, indent=2) if product_profile else 'No specific product'}
+
+Analyze this campaign and determine:
+1. What type of campaign is this?
+2. What metrics best indicate success?
+3. What performance thresholds are realistic for this brand?"""
+
+    tool = {
+        "name": "set_campaign_metrics",
+        "description": "Define campaign type and success metrics",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "campaign_type": {
+                    "type": "string",
+                    "enum": ["educational", "promotional", "brand_awareness", "product_launch",
+                            "community_building", "testimonial", "seasonal", "other"],
+                    "description": "The primary type of campaign based on brief analysis"
+                },
+                "campaign_subtypes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Additional characteristics (e.g., 'how-to-guide', 'product-comparison', 'flash-sale')"
+                },
+                "primary_metric": {
+                    "type": "string",
+                    "enum": ["saves", "shares", "link_clicks", "conversion_count", "reach",
+                            "impressions", "comments", "engagement_rate", "profile_visits", "views"],
+                    "description": "The ONE metric that best indicates success for this campaign"
+                },
+                "secondary_metric": {
+                    "type": "string",
+                    "enum": ["saves", "shares", "link_clicks", "conversion_count", "reach",
+                            "impressions", "comments", "engagement_rate", "profile_visits", "views"],
+                    "description": "Supporting metric for additional insight"
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Clear explanation of why these metrics and thresholds were chosen"
+                },
+                "expected_thresholds": {
+                    "type": "object",
+                    "description": "Realistic performance expectations for this specific brand",
+                    "properties": {
+                        "excellent": {
+                            "type": "object",
+                            "description": "Outstanding performance level"
+                        },
+                        "good": {
+                            "type": "object",
+                            "description": "Solid performance level"
+                        },
+                        "average": {
+                            "type": "object",
+                            "description": "Baseline acceptable performance"
+                        }
+                    },
+                    "required": ["excellent", "good", "average"]
+                }
+            },
+            "required": ["campaign_type", "primary_metric", "secondary_metric", "reasoning", "expected_thresholds"]
+        }
+    }
+
+    messages = [{"role": "user", "content": user_prompt}]
+    result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=1500)
+
+    logger.info(
+        "AI detected campaign type: %s (primary: %s, secondary: %s)",
+        result["campaign_type"],
+        result["primary_metric"],
+        result.get("secondary_metric")
+    )
+
+    return result
+
+
+def analyze_winning_elements(
+    *,
+    caption_text: str,
+    image_url: str | None,
+    video_url: str | None,
+    metrics: dict[str, Any],
+    success_metric: str,
+    campaign_type: str,
+    platform: str,
+) -> dict[str, Any]:
+    """AI analyzes a SUCCESSFUL post to identify why it worked.
+
+    Returns specific elements that drove success:
+    - Hook type and description
+    - Visual style and specific elements
+    - Caption strategy and highlights
+    - Format and unique elements
+    """
+
+    system = f"""You are an expert social media performance analyst.
+
+Analyze this {campaign_type} post that performed EXCEPTIONALLY WELL.
+
+SUCCESS METRIC: {success_metric}
+This post achieved: {metrics.get(success_metric, 0)} {success_metric}
+
+Your task: Identify the SPECIFIC ELEMENTS that made this post successful.
+
+Focus on:
+1. **Hook/Opening**: How did it grab attention? (Question, statement, shock value, storytelling?)
+2. **Visual Style**: What visual approach? (Product close-up, lifestyle shot, before/after, comparison?)
+3. **Caption Structure**: What made the caption effective? (Storytelling, price mention, tips, CTA?)
+4. **Format**: What format? (Single image, carousel, video, reel?)
+5. **Unique Elements**: Any standout elements? (Color scheme, specific features highlighted, urgency?)
+
+Be SPECIFIC and CONCRETE. Don't say "good visuals" - say "close-up product comparison showing 3 shades side-by-side".
+Don't say "engaging caption" - say "Started with relatable question 'ไม่รู้เลือกสีไหนดี?' creating immediate connection"."""
+
+    user_prompt = f"""POST DATA:
+Platform: {platform}
+
+Caption: {caption_text}
+
+PERFORMANCE:
+- {success_metric}: {metrics.get(success_metric, 0)} ⭐⭐⭐⭐⭐
+- Likes: {metrics.get('likes', 0)}
+- Comments: {metrics.get('comments', 0)}
+- Shares: {metrics.get('shares', 0)}
+- Saves: {metrics.get('saves', 0)}
+- Reach: {metrics.get('reach', 0)}
+
+Analyze what specific elements made this post successful."""
+
+    # Build messages with visual if available
+    messages = [{"role": "user", "content": []}]
+
+    if image_url:
+        messages[0]["content"].append({
+            "type": "image",
+            "source": {"type": "url", "url": image_url}
+        })
+
+    messages[0]["content"].append({"type": "text", "text": user_prompt})
+
+    tool = {
+        "name": "identify_winning_elements",
+        "description": "Identify specific elements that made this post successful",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "hook_type": {
+                    "type": "string",
+                    "description": "Type of hook (question, statement, shock, story, problem)"
+                },
+                "hook_description": {
+                    "type": "string",
+                    "description": "Specific description (e.g., 'Asked relatable question about choosing wrong shade')"
+                },
+                "visual_style": {
+                    "type": "string",
+                    "description": "Main visual approach (product-comparison, lifestyle, before-after, model-showcase)"
+                },
+                "visual_description": {
+                    "type": "string",
+                    "description": "Specific visual elements (e.g., 'Side-by-side 3 nude shades on different skin tones')"
+                },
+                "caption_strategy": {
+                    "type": "string",
+                    "description": "Caption approach (educational-tips, problem-solution, storytelling, price-highlight)"
+                },
+                "caption_highlights": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Key elements in caption (e.g., ['Mentioned 199฿ price', 'Skin-tone guide', 'Relatable pain point'])"
+                },
+                "format": {
+                    "type": "string",
+                    "description": "Content format (carousel, single-image, reel, story)"
+                },
+                "unique_elements": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Other standout elements that drove success"
+                },
+                "why_it_worked": {
+                    "type": "string",
+                    "description": "Overall explanation of why this combination was effective"
+                }
+            },
+            "required": ["hook_type", "visual_style", "caption_strategy", "format", "why_it_worked"]
+        }
+    }
+
+    try:
+        result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=2000)
+        return result
+    except Exception as e:
+        logger.error("Failed to analyze winning elements: %s", e)
+        return {}
+
+
+# Losing metrics decision table - funnel stage diagnosis
+LOSING_METRICS_STAGES = {
+    "stage_1_low_visibility": {
+        "name": "Low Visibility",
+        "losing_points": 3,
+        "possible_causes": ["topic", "creative", "audience_targeting", "posting_time"],
+        "description": "Post didn't reach enough people"
+    },
+    "stage_2_seen_not_engaged": {
+        "name": "High Visibility but Low Engagement",
+        "losing_points": 2,
+        "possible_causes": ["hook", "visual", "first_3_seconds"],
+        "description": "People saw it but didn't stop scrolling"
+    },
+    "stage_3_viewed_no_action": {
+        "name": "Viewed but No Action",
+        "losing_points": 2,
+        "possible_causes": ["message", "product_benefit", "cta", "value_proposition"],
+        "description": "People watched but didn't click/engage"
+    },
+    "stage_4_clicked_no_conversion": {
+        "name": "Clicked but No Purchase",
+        "losing_points": 3,
+        "possible_causes": ["price", "promotion", "reviews", "stock", "product_page"],
+        "description": "People clicked link but didn't buy"
+    }
+}
+
+
+def diagnose_losing_metrics(
+    *,
+    caption_text: str,
+    image_url: str | None,
+    video_url: str | None,
+    metrics: dict[str, Any],
+    expected_thresholds: dict[str, Any],
+    primary_metric: str,
+    campaign_type: str,
+    platform: str,
+) -> dict[str, Any]:
+    """AI diagnoses WHERE and WHY a post underperformed in the conversion funnel.
+
+    Returns:
+    - Failing stages in the funnel
+    - Specific root causes for each stage
+    - Actionable fixes prioritized by impact
+    """
+
+    # Check which stages are failing
+    losing_stages = []
+    total_losing_points = 0
+
+    # Stage 1: Low Visibility
+    reach = metrics.get("reach", 0)
+    impressions = metrics.get("impressions", 0)
+    if reach < 1000 or impressions < 2000:
+        losing_stages.append({
+            "stage": "stage_1_low_visibility",
+            "name": "Low Visibility",
+            "losing_points": 3,
+            "metrics": {"reach": reach, "impressions": impressions}
+        })
+        total_losing_points += 3
+
+    # Stage 2: Seen but Not Engaged
+    engagement_rate = metrics.get("engagement_rate", 0)
+    watch_time = metrics.get("avg_watch_time_seconds", 0)
+    if impressions > 2000 and (engagement_rate < 2 or (watch_time > 0 and watch_time < 5)):
+        losing_stages.append({
+            "stage": "stage_2_seen_not_engaged",
+            "name": "High Visibility but Low Engagement",
+            "losing_points": 2,
+            "metrics": {"engagement_rate": engagement_rate, "watch_time": watch_time}
+        })
+        total_losing_points += 2
+
+    # Stage 3: Viewed but No Action
+    views = metrics.get("views", 0)
+    link_clicks = metrics.get("link_clicks", 0)
+    if views > 500 and link_clicks < 20:
+        losing_stages.append({
+            "stage": "stage_3_viewed_no_action",
+            "name": "Viewed but No Action",
+            "losing_points": 2,
+            "metrics": {"views": views, "link_clicks": link_clicks}
+        })
+        total_losing_points += 2
+
+    # Stage 4: Clicked but No Conversion
+    conversions = metrics.get("conversion_count", 0)
+    if link_clicks > 20 and conversions < 2:
+        losing_stages.append({
+            "stage": "stage_4_clicked_no_conversion",
+            "name": "Clicked but No Purchase",
+            "losing_points": 3,
+            "metrics": {"link_clicks": link_clicks, "conversions": conversions}
+        })
+        total_losing_points += 3
+
+    # If performing well, return early
+    if not losing_stages:
+        return {
+            "status": "performing_well",
+            "losing_points": 0,
+            "losing_stages": []
+        }
+
+    # AI analyzes WHY it failed at each stage
+    stages_text = "\n".join([
+        f"- {stage['name']} (Possible causes: {', '.join(LOSING_METRICS_STAGES[stage['stage']]['possible_causes'])})"
+        for stage in losing_stages
+    ])
+
+    system = f"""You are a social media performance analyst diagnosing underperforming posts.
+
+This {campaign_type} post is FAILING at these funnel stages:
+{stages_text}
+
+For each failing stage, identify the SPECIFIC issue and provide ACTIONABLE fixes.
+
+Be ruthlessly honest and specific:
+- Don't say "improve hook" - say "Hook lacks curiosity. Try question format: 'คุณเคยประสบปัญหา...?'"
+- Don't say "better visuals" - say "Product too small in frame. Use close-up showing texture details"
+- Don't say "clearer message" - say "Value proposition buried in 3rd sentence. Move '50% off' to opening"
+
+Platform-specific guidance:
+- TikTok: First 3 seconds are CRITICAL. Hook must create instant curiosity
+- Instagram: Visual must stop scroll immediately. Test carousel vs single image
+- Facebook: Clear CTA and value proposition drive clicks"""
+
+    user_prompt = f"""POST PERFORMANCE:
+Platform: {platform}
+Primary Metric: {primary_metric}
+
+METRICS:
+- Reach: {metrics.get('reach', 0)}
+- Impressions: {metrics.get('impressions', 0)}
+- Engagement Rate: {metrics.get('engagement_rate', 0)}%
+- Views: {metrics.get('views', 0)}
+- Link Clicks: {metrics.get('link_clicks', 0)}
+- Conversions: {metrics.get('conversion_count', 0)}
+- Saves: {metrics.get('saves', 0)}
+- Shares: {metrics.get('shares', 0)}
+
+Caption: {caption_text}
+
+EXPECTED PERFORMANCE:
+{json.dumps(expected_thresholds, indent=2)}
+
+Diagnose what specific elements are causing this post to fail at each stage."""
+
+    # Build messages with visual
+    messages = [{"role": "user", "content": []}]
+
+    if image_url:
+        messages[0]["content"].append({
+            "type": "image",
+            "source": {"type": "url", "url": image_url}
+        })
+
+    messages[0]["content"].append({"type": "text", "text": user_prompt})
+
+    tool = {
+        "name": "diagnose_failures",
+        "description": "Identify specific issues causing underperformance at each funnel stage",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "stage_analyses": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "stage": {"type": "string"},
+                            "is_failing": {"type": "boolean"},
+                            "root_cause": {
+                                "type": "string",
+                                "description": "Primary cause category (hook, visual, message, etc.)"
+                            },
+                            "specific_issue": {
+                                "type": "string",
+                                "description": "Concrete description of what's wrong"
+                            },
+                            "fix": {
+                                "type": "string",
+                                "description": "Specific actionable fix with examples"
+                            }
+                        }
+                    }
+                },
+                "overall_recommendations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Top 3-5 actionable fixes in priority order (highest impact first)"
+                },
+                "what_needs_improvement": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of specific elements that need improvement"
+                }
+            },
+            "required": ["stage_analyses", "overall_recommendations", "what_needs_improvement"]
+        }
+    }
+
+    try:
+        result, tokens = _forced_tool_call(system=system, messages=messages, tool=tool, max_tokens=2000)
+
+        return {
+            "status": "underperforming",
+            "losing_points": total_losing_points,
+            "losing_stages": losing_stages,
+            "ai_diagnosis": result,
+            "what_needs_improvement": result.get("what_needs_improvement", []),
+            "recommendations": result.get("overall_recommendations", [])
+        }
+    except Exception as e:
+        logger.error("Failed to diagnose losing metrics: %s", e)
+        return {
+            "status": "underperforming",
+            "losing_points": total_losing_points,
+            "losing_stages": losing_stages,
+            "ai_diagnosis": {},
+            "what_needs_improvement": [],
+            "recommendations": []
+        }

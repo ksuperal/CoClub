@@ -102,6 +102,7 @@ class CampaignOut(BaseModel):
     brand_id: str
     product_id: str | None
     campaign_type: str
+    campaign_subtypes: list[str] = Field(default_factory=list)
     brief: str
     product_url: str | None = None
     variant_count: int  # legacy fallback default — see step2_variants._expand_content_plan
@@ -113,6 +114,10 @@ class CampaignOut(BaseModel):
     status: str
     error_message: str | None
     warning_message: str | None = None  # defaults to None until the 0005 migration is applied
+    primary_metric: str | None = None
+    secondary_metric: str | None = None
+    metrics_reasoning: str | None = None
+    expected_thresholds: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 
