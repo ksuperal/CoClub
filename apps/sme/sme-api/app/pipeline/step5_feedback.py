@@ -13,7 +13,7 @@ import logging
 from typing import Any
 
 from ..db import get_service_client
-from ..services import follower_tracking, llm, social, usage
+from ..services import boost_recommendations, follower_tracking, llm, social, usage
 from ..services.scoring import engagement_score
 
 logger = logging.getLogger(__name__)
@@ -151,5 +151,19 @@ def run_feedback_job(campaign_id: str) -> None:
         usage.log_usage(
             client, user_id=campaign["user_id"], campaign_id=campaign_id, kind="llm_call", units=output_tokens
         )
+
+    # Generate AI boost recommendations after 72-hour metrics collection
+    try:
+        boost_recs = boost_recommendations.generate_boost_recommendations_for_campaign(
+            client, campaign_id=campaign_id
+        )
+        if boost_recs:
+            logger.info(f"Generated {len(boost_recs)} boost recommendations for campaign {campaign_id}")
+            boost_recommendations.store_boost_recommendations(
+                client, campaign_id=campaign_id, recommendations=boost_recs
+            )
+    except Exception as e:
+        # Don't fail the entire feedback job if boost recommendations fail
+        logger.error(f"Failed to generate boost recommendations for campaign {campaign_id}: {e}")
 
     client.table("campaigns").update({"status": "completed"}).eq("id", campaign_id).execute()
