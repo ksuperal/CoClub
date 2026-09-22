@@ -21,11 +21,14 @@ SCOPES = [
     "pages_show_list",
     "pages_read_engagement",
     "pages_manage_posts",
+    "pages_manage_ads",           # Required for boosting posts via Ads API
     "instagram_basic",
     "instagram_content_publish",
     "instagram_manage_insights",  # Required for Instagram Insights API (reach, saves, watch time, etc.)
     "read_insights",              # Optional: for advanced Facebook Page-level insights
     "business_management",
+    "ads_management",             # Required for creating and managing ad campaigns
+    "ads_read",                   # Required for reading ad performance metrics
 ]
 
 

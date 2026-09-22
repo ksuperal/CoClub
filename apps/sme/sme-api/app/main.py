@@ -4,7 +4,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
-from .routers import assets, brands, campaigns, products, reports, social, tracking
+from .routers import assets, boost, brands, campaigns, products, reports, social, tracking
 
 # INFO-level logs from our own modules (e.g. pipeline/step1_intake.py's extraction
 # debug logs) are silent by default since the root logger defaults to WARNING —
@@ -28,7 +28,7 @@ app.add_middleware(
 # /social/callback/tiktok) are OAuth redirect URIs already registered in the Meta and
 # TikTok developer dashboards — versioning them would break those live integrations.
 api_v1 = APIRouter(prefix="/v1")
-for _router in (brands.router, products.router, campaigns.router, reports.router, assets.router, tracking.router):
+for _router in (brands.router, products.router, campaigns.router, reports.router, assets.router, tracking.router, boost.router):
     api_v1.include_router(_router)
 app.include_router(api_v1)
 app.include_router(social.router)
